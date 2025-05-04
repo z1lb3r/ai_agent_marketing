@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from ...services.telegram_service import TelegramService
 from ...core.database import supabase_client
-from ...agents.telegram_agent import TelegramAnalyzerAgent
+from ...agents.telegram_agent import create_telegram_analyzer_agent
 from agents import Runner
 
 router = APIRouter()
@@ -22,7 +22,7 @@ async def analyze_group(group_id: str):
     """Запустить анализ группы"""
     try:
         # Создаем агента
-        agent = TelegramAnalyzerAgent()
+        agent = create_telegram_analyzer_agent()
         
         # Запускаем анализ
         result = await Runner.run(
