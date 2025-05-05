@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     
     # Supabase
     SUPABASE_URL: str = "https://ujtenbbwwdxclabytfws.supabase.co"
-    SUPABASE_KEY: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdGVuYmJ3d2R4Y2xhYnl0ZndzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYyOTYzODAsImV4cCI6MjA2MTg3MjM4MH0.DH6EKY52XbxKEgbv215s976MphAu5BmhwNJ2bbipmfM"
+    SUPABASE_KEY: str = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdGVuYmJ3d2R4Y2xhYnl0ZndzIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0NjI5NjM4MCwiZXhwIjoyMDYxODcyMzgwfQ.bYf3kL1eWlP-GcGHeXkNcZ8cKEG-CP1ig1btZJrhRA8"#"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVqdGVuYmJ3d2R4Y2xhYnl0ZndzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDYyOTYzODAsImV4cCI6MjA2MTg3MjM4MH0.DH6EKY52XbxKEgbv215s976MphAu5BmhwNJ2bbipmfM"
     
     # Telegram
     TELEGRAM_API_ID: int = 26178048
