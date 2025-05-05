@@ -1,33 +1,16 @@
 # backend/app/main.py
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from .api.v1 import telegram, moderators, analytics, auth
 from .core.config import settings
-from .core.database import SupabaseClient
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json"
 )
 
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Убираем CORS middleware для упрощения
 
-# Инициализация таблиц при запуске
-@app.on_event("startup")
-async def startup_db_client():
-    # Получаем инстанцию класса SupabaseClient
-    db_instance = SupabaseClient()
-    # Вызываем метод инициализации таблиц
-    db_instance.init_tables()
-
-# Include routers
+# Включаем роутеры
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
 app.include_router(telegram.router, prefix=f"{settings.API_V1_STR}/telegram", tags=["telegram"])
 app.include_router(moderators.router, prefix=f"{settings.API_V1_STR}/moderators", tags=["moderators"])
