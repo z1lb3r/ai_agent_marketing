@@ -191,12 +191,7 @@ async def collect_group_data(group_id: str, limit: int = 100):
 async def analyze_group(group_id: str):
     """Запустить анализ группы"""
     try:
-        # ВАЖНО: полностью убраны ссылки на агента
-        # НЕТ этих строк:
-        # agent = create_telegram_analyzer_agent()
-        # result = await Runner.run(...)
-        
-        # Просто возвращаем мок-результаты
+        # Для тестирования возвращаем мок-результаты
         mock_result = {
             "sentiment_score": 78,
             "response_time": "4.2 min",
@@ -206,19 +201,19 @@ async def analyze_group(group_id: str):
             "key_topics": ["support", "feedback", "technical issues", "updates"]
         }
         
-        # Сохраняем результаты
+        # Сохраняем результаты с правильными полями
         analysis_report = {
             "group_id": group_id,
             "type": "telegram_analysis",
-            "date_from": (datetime.now() - timedelta(days=7)).isoformat(),
-            "date_to": datetime.now().isoformat(),
             "results": mock_result
+            # created_at будет добавлено автоматически
         }
         
         supabase_client.table('analysis_reports').insert(analysis_report).execute()
         
         return {"status": "success", "result": mock_result}
     except Exception as e:
-        # Добавляем детали ошибки в ответ
+        import logging
+        logger = logging.getLogger(__name__)
         logger.error(f"Error in analyze_group: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
