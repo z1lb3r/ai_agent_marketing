@@ -3,8 +3,8 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict, Any
 from ...services.telegram_service import TelegramService
 from ...core.database import supabase_client
-from ...agents.telegram_agent import create_telegram_analyzer_agent
-from agents import Runner
+# from ...agents.telegram_agent import create_telegram_analyzer_agent
+# from agents import Runner
 from datetime import datetime, timedelta
 
 router = APIRouter()
@@ -191,7 +191,12 @@ async def collect_group_data(group_id: str, limit: int = 100):
 async def analyze_group(group_id: str):
     """Запустить анализ группы"""
     try:
-        # Для тестирования возвращаем мок-результаты
+        # ВАЖНО: полностью убраны ссылки на агента
+        # НЕТ этих строк:
+        # agent = create_telegram_analyzer_agent()
+        # result = await Runner.run(...)
+        
+        # Просто возвращаем мок-результаты
         mock_result = {
             "sentiment_score": 78,
             "response_time": "4.2 min",
@@ -214,4 +219,6 @@ async def analyze_group(group_id: str):
         
         return {"status": "success", "result": mock_result}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Добавляем детали ошибки в ответ
+        logger.error(f"Error in analyze_group: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")

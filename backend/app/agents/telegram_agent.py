@@ -1,7 +1,8 @@
 # backend/app/agents/telegram_agent.py
 from agents import Agent, ModelSettings, function_tool
 from typing import Dict, Any
-from ..services.telegram_service import TelegramService
+# Закомментируйте эту строку
+# from ..services.telegram_service import TelegramService
 
 # Создаем агента напрямую без базового класса
 def create_telegram_analyzer_agent():
@@ -20,21 +21,20 @@ def create_telegram_analyzer_agent():
             max_tokens=1000
         ),
         tools=[
-            fetch_telegram_messages,
-            analyze_moderator_activity,
-            detect_sentiment,
-            extract_key_topics
+            # Закомментируйте реальные инструменты
+            # fetch_telegram_messages,
+            # analyze_moderator_activity,
+            # detect_sentiment,
+            # extract_key_topics
+            mock_analysis # Добавьте эту заглушку
         ]
     )
 
-# Tools остаются такими же
+# Заглушка для инструмента анализа
 @function_tool
-async def fetch_telegram_messages(
+async def mock_analysis(
     context: Dict[str, Any],
-    group_id: str,
-    limit: int = 100
+    group_id: str
 ) -> str:
-    """Fetch recent messages from a Telegram group"""
-    telegram_service = TelegramService()
-    messages = await telegram_service.get_group_messages(group_id, limit)
-    return f"Fetched {len(messages)} messages from group {group_id}"
+    """Mock analysis function that doesn't connect to Telegram"""
+    return "Analysis completed with mock data"
