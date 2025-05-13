@@ -17,6 +17,22 @@ export const useTelegramGroup = (groupId: string) => {
   });
 };
 
+export const useGroupMessages = (groupId: string) => {
+  return useQuery({
+    queryKey: ['telegram-messages', groupId],
+    queryFn: () => telegramService.getGroupMessages(groupId),
+    enabled: !!groupId,
+  });
+};
+
+export const useGroupModerators = (groupId: string) => {
+  return useQuery({
+    queryKey: ['telegram-moderators', groupId],
+    queryFn: () => telegramService.getGroupModerators(groupId),
+    enabled: !!groupId,
+  });
+};
+
 export const useAnalyzeGroup = () => {
   const queryClient = useQueryClient();
   
@@ -24,6 +40,7 @@ export const useAnalyzeGroup = () => {
     mutationFn: (groupId: string) => telegramService.analyzeGroup(groupId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['telegram-groups'] });
+      queryClient.invalidateQueries({ queryKey: ['telegram-group'] });
     },
   });
 };

@@ -14,6 +14,16 @@ export const telegramService = {
     return response.data;
   },
 
+  async getGroupMessages(groupId: string): Promise<any[]> {
+    const response = await api.get(`/telegram/groups/${groupId}/messages`);
+    return response.data;
+  },
+
+  async getGroupModerators(groupId: string): Promise<any[]> {
+    const response = await api.get(`/telegram/groups/${groupId}/moderators`);
+    return response.data;
+  },
+
   async analyzeGroup(groupId: string): Promise<AnalysisReport> {
     const response = await api.post(`/telegram/groups/${groupId}/analyze`);
     return response.data;

@@ -6,10 +6,13 @@ import { useTelegramGroups, useTelegramGroup, useAnalyzeGroup } from '../hooks/u
 import { GroupList } from '../components/Telegram/GroupList';
 import { LineChart } from '../components/Charts/LineChart';
 import { DashboardCard } from '../components/Dashboard/DashboardCard';
+import { MessageList } from '../components/Telegram/MessageList';
+import { ModeratorList } from '../components/Telegram/ModeratorList';
+import { SentimentAnalysis } from '../components/Telegram/SentimentAnalysis';
 
 export const TelegramPage: React.FC = () => {
   const { groupId } = useParams<{ groupId: string }>();
-  const { data: groups, isLoading: isLoadingGroups } = useTelegramGroups();
+  const { data: groups } = useTelegramGroups();
   const { data: group, isLoading: isLoadingGroup } = useTelegramGroup(groupId || '');
   const analyzeGroupMutation = useAnalyzeGroup();
   const [analyzing, setAnalyzing] = useState<boolean>(false);
@@ -22,7 +25,7 @@ export const TelegramPage: React.FC = () => {
     setAnalyzing(true);
     try {
       const result = await analyzeGroupMutation.mutateAsync(groupId);
-      setAnalysisResults(result.result);
+      setAnalysisResults(result);
     } catch (error) {
       console.error('Error analyzing group:', error);
     } finally {
@@ -43,15 +46,36 @@ export const TelegramPage: React.FC = () => {
             <GroupList />
             <div className="bg-white shadow rounded-lg p-6">
               <h3 className="text-lg font-medium mb-4">How to Use</h3>
-              <p className="text-gray-600 mb-2">
-                1. Select a Telegram group from the list to view details.
+              <p className="text-gray-600 mb-4">
+                This module helps you analyze Telegram groups to evaluate moderator performance, 
+                sentiment trends, and community engagement.
               </p>
-              <p className="text-gray-600 mb-2">
-                2. Run analysis to get insights on moderator performance.
-              </p>
-              <p className="text-gray-600 mb-2">
-                3. Review sentiment analysis and key discussion topics.
-              </p>
+              <div className="space-y-3">
+                <div className="flex items-start">
+                  <div className="bg-indigo-100 p-2 rounded-full mr-3 mt-0.5">
+                    <span className="text-indigo-700 font-bold">1</span>
+                  </div>
+                  <p className="text-gray-600">
+                    Select a Telegram group from the list to view details
+                  </p>
+                </div>
+                <div className="flex items-start">
+                  <div className="bg-indigo-100 p-2 rounded-full mr-3 mt-0.5">
+                    <span className="text-indigo-700 font-bold">2</span>
+                  </div>
+                  <p className="text-gray-600">
+                    Run analysis to get insights on moderator performance
+                  </p>
+                </div>
+                <div className="flex items-start">
+                  <div className="bg-indigo-100 p-2 rounded-full mr-3 mt-0.5">
+                    <span className="text-indigo-700 font-bold">3</span>
+                  </div>
+                  <p className="text-gray-600">
+                    Review sentiment analysis and key discussion topics
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -64,8 +88,17 @@ export const TelegramPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <p className="text-lg text-gray-600">Loading group data...</p>
+          <div className="animate-pulse">
+            <div className="h-8 bg-gray-200 rounded w-1/4 mb-8"></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-white h-32 rounded-lg shadow"></div>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="bg-white h-80 rounded-lg shadow"></div>
+              <div className="bg-white h-80 rounded-lg shadow"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -77,8 +110,17 @@ export const TelegramPage: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center">
-            <p className="text-lg text-red-600">Group not found</p>
+          <div className="text-center bg-white shadow rounded-lg p-8">
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Group Not Found</h2>
+            <p className="text-lg text-gray-600 mb-6">
+              The Telegram group you're looking for couldn't be found. It may have been removed or you don't have access.
+            </p>
+            <a 
+              href="/telegram" 
+              className="inline-block px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
+            >
+              Back to Groups
+            </a>
           </div>
         </div>
       </div>
@@ -93,6 +135,8 @@ export const TelegramPage: React.FC = () => {
       { date: '2025-04-03', value: 3.9 },
       { date: '2025-04-04', value: 4.5 },
       { date: '2025-04-05', value: 5.1 },
+      { date: '2025-04-06', value: 4.2 },
+      { date: '2025-04-07', value: 3.8 },
     ],
     moderatorStats: {
       avgResponse: '4.5 min',
@@ -110,17 +154,12 @@ export const TelegramPage: React.FC = () => {
             {group.name}
           </h1>
           
-          <button
-            onClick={handleAnalyze}
-            disabled={analyzing}
-            className={`px-4 py-2 rounded-md ${
-              analyzing 
-                ? 'bg-gray-300 cursor-not-allowed' 
-                : 'bg-indigo-600 hover:bg-indigo-700 text-white'
-            }`}
+          <a 
+            href="/telegram" 
+            className="text-indigo-600 hover:text-indigo-800"
           >
-            {analyzing ? 'Analyzing...' : 'Analyze Group'}
-          </button>
+            Back to all groups
+          </a>
         </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
@@ -146,7 +185,7 @@ export const TelegramPage: React.FC = () => {
           />
         </div>
         
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           <LineChart 
             data={mockData.responseTime}
             dataKey="value"
@@ -155,21 +194,17 @@ export const TelegramPage: React.FC = () => {
             color="#3b82f6"
           />
           
-          <div className="bg-white shadow rounded-lg p-6">
-            <h3 className="text-lg font-medium mb-4">Moderator Analysis</h3>
-            {analyzing ? (
-              <p className="text-gray-600">Analyzing data...</p>
-            ) : analysisResults ? (
-              <div>
-                <p className="text-gray-600 mb-3">{analysisResults}</p>
-              </div>
-            ) : (
-              <p className="text-gray-600">
-                Click the "Analyze Group" button to get detailed insights about moderator 
-                performance, sentiment analysis, and key discussion topics.
-              </p>
-            )}
-          </div>
+          <SentimentAnalysis 
+            groupId={groupId}
+            analysisResults={analysisResults}
+            isAnalyzing={analyzing}
+            onAnalyze={handleAnalyze}
+          />
+        </div>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <MessageList groupId={groupId} />
+          <ModeratorList groupId={groupId} />
         </div>
       </div>
     </div>
