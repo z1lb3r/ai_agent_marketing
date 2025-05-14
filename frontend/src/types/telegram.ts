@@ -59,3 +59,45 @@ export interface AnalysisReport {
   key_topics?: string[];
   created_at?: string;
 }
+
+// frontend/src/types/telegram.ts - добавить новые типы
+
+export interface AnalysisResultSummary {
+  sentiment_score: number;
+  response_time_avg: number;
+  resolved_issues: number;
+  satisfaction_score: number;
+  engagement_rate: number;
+}
+
+export interface ModeratorMetrics {
+  response_time: {
+    avg: number;
+    min: number;
+    max: number;
+  };
+  sentiment: {
+    positive: number;
+    neutral: number;
+    negative: number;
+  };
+  performance: {
+    effectiveness: number;
+    helpfulness: number;
+    clarity: number;
+  };
+}
+
+export interface AnalysisResultData {
+  timestamp: string;
+  summary: AnalysisResultSummary;
+  key_topics: string[];
+  moderator_metrics: ModeratorMetrics;
+  recommendations: string[];
+}
+
+export interface AnalysisResponse {
+  status: string;
+  result: AnalysisResultData;
+  message?: string;
+}

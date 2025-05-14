@@ -1,7 +1,7 @@
 // frontend/src/pages/TelegramPage.tsx
 import React, { useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { MessageSquare, BarChart2, Users, Clock } from 'lucide-react';
+import { MessageSquare, BarChart2, Users, Clock, LightBulb, Activity } from 'lucide-react';
 import { useTelegramGroups, useTelegramGroup, useAnalyzeGroup } from '../hooks/useTelegramData';
 import { GroupList } from '../components/Telegram/GroupList';
 import { LineChart } from '../components/Charts/LineChart';
@@ -17,6 +17,7 @@ export const TelegramPage: React.FC = () => {
   const analyzeGroupMutation = useAnalyzeGroup();
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [showAnalysisDetails, setShowAnalysisDetails] = useState<boolean>(false);
 
   // Обработчик для запуска анализа
   const handleAnalyze = async () => {
@@ -25,7 +26,8 @@ export const TelegramPage: React.FC = () => {
     setAnalyzing(true);
     try {
       const result = await analyzeGroupMutation.mutateAsync(groupId);
-      setAnalysisResults(result);
+      setAnalysisResults(result.result);
+      setShowAnalysisDetails(true);
     } catch (error) {
       console.error('Error analyzing group:', error);
     } finally {
@@ -170,17 +172,17 @@ export const TelegramPage: React.FC = () => {
           />
           <DashboardCard
             title="Avg Response Time"
-            value={mockData.moderatorStats.avgResponse}
+            value={analysisResults?.summary?.response_time_avg ? `${analysisResults.summary.response_time_avg} min` : mockData.moderatorStats.avgResponse}
             icon={<Clock className="h-6 w-6 text-yellow-600" />}
           />
           <DashboardCard
             title="Resolved Issues"
-            value={mockData.moderatorStats.resolved}
+            value={analysisResults?.summary?.resolved_issues || mockData.moderatorStats.resolved}
             icon={<BarChart2 className="h-6 w-6 text-green-600" />}
           />
           <DashboardCard
             title="Satisfaction"
-            value={mockData.moderatorStats.satisfaction}
+            value={analysisResults?.summary?.satisfaction_score ? `${analysisResults.summary.satisfaction_score}%` : mockData.moderatorStats.satisfaction}
             icon={<MessageSquare className="h-6 w-6 text-purple-600" />}
           />
         </div>
@@ -201,6 +203,167 @@ export const TelegramPage: React.FC = () => {
             onAnalyze={handleAnalyze}
           />
         </div>
+        
+        {/* Детализированные результаты анализа */}
+        {analysisResults && showAnalysisDetails && (
+          <div className="mb-8">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-900">Analysis Results</h2>
+              <button 
+                onClick={() => setShowAnalysisDetails(!showAnalysisDetails)}
+                className="text-indigo-600 hover:text-indigo-800"
+              >
+                {showAnalysisDetails ? 'Hide Details' : 'Show Details'}
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              {/* Сентимент */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Sentiment Analysis</h3>
+                <div className="grid grid-cols-3 gap-4 mb-6">
+                  <div className="bg-green-50 p-4 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">Positive</p>
+                    <p className="text-2xl font-semibold text-green-600">
+                      {analysisResults.moderator_metrics?.sentiment?.positive || 0}%
+                    </p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">Neutral</p>
+                    <p className="text-2xl font-semibold text-gray-600">
+                      {analysisResults.moderator_metrics?.sentiment?.neutral || 0}%
+                    </p>
+                  </div>
+                  <div className="bg-red-50 p-4 rounded-lg text-center">
+                    <p className="text-sm text-gray-500">Negative</p>
+                    <p className="text-2xl font-semibold text-red-600">
+                      {analysisResults.moderator_metrics?.sentiment?.negative || 0}%
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-700 font-medium mb-2">Overall Sentiment Score</p>
+                  <div className="w-full bg-gray-200 rounded-full h-4">
+                    <div
+                      className="bg-blue-600 h-4 rounded-full"
+                      style={{ width: `${analysisResults.summary?.sentiment_score || 0}%` }}
+                    ></div>
+                  </div>
+                  <p className="text-right text-sm text-gray-600 mt-1">
+                    {analysisResults.summary?.sentiment_score || 0}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Модераторы */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Moderator Performance</h3>
+                <div className="space-y-4">
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <p className="text-sm text-gray-600">Effectiveness</p>
+                      <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.effectiveness || 0}%</p>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-green-500 h-2 rounded-full" 
+                        style={{ width: `${analysisResults.moderator_metrics?.performance?.effectiveness || 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <p className="text-sm text-gray-600">Helpfulness</p>
+                      <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.helpfulness || 0}%</p>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-blue-500 h-2 rounded-full" 
+                        style={{ width: `${analysisResults.moderator_metrics?.performance?.helpfulness || 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex justify-between mb-1">
+                      <p className="text-sm text-gray-600">Clarity</p>
+                      <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.clarity || 0}%</p>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className="bg-purple-500 h-2 rounded-full" 
+                        style={{ width: `${analysisResults.moderator_metrics?.performance?.clarity || 0}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="mt-6">
+                  <h4 className="font-medium text-sm text-gray-700 mb-3">Response Time Metrics</h4>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-gray-50 p-3 rounded-lg text-center">
+                      <p className="text-xs text-gray-500">Min</p>
+                      <p className="text-lg font-semibold text-gray-700">
+                        {analysisResults.moderator_metrics?.response_time?.min || 0} min
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-lg text-center">
+                      <p className="text-xs text-gray-500">Avg</p>
+                      <p className="text-lg font-semibold text-gray-700">
+                        {analysisResults.moderator_metrics?.response_time?.avg || 0} min
+                      </p>
+                    </div>
+                    <div className="bg-gray-50 p-3 rounded-lg text-center">
+                      <p className="text-xs text-gray-500">Max</p>
+                      <p className="text-lg font-semibold text-gray-700">
+                        {analysisResults.moderator_metrics?.response_time?.max || 0} min
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              {/* Ключевые темы */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Key Discussion Topics</h3>
+                {analysisResults.key_topics && analysisResults.key_topics.length > 0 ? (
+                  <ul className="space-y-3">
+                    {analysisResults.key_topics.map((topic: string, index: number) => (
+                      <li key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
+                        <div className="p-2 bg-indigo-100 rounded-full mr-3">
+                          <Activity className="h-4 w-4 text-indigo-600" />
+                        </div>
+                        <span className="text-gray-700 capitalize">{topic}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">No key topics identified</p>
+                )}
+              </div>
+              
+              {/* Рекомендации */}
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Improvement Recommendations</h3>
+                {analysisResults.recommendations && analysisResults.recommendations.length > 0 ? (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <ul className="space-y-3">
+                      {analysisResults.recommendations.map((recommendation: string, index: number) => (
+                        <li key={index} className="flex">
+                          <LightBulb className="h-5 w-5 text-yellow-500 flex-shrink-0 mr-3" />
+                          <p className="text-gray-700">{recommendation}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-center py-8">No recommendations available</p>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <MessageList groupId={groupId} />
