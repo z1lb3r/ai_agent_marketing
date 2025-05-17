@@ -13,64 +13,129 @@ from ..core.database import supabase_client
 logger = logging.getLogger(__name__)
 
 class TelegramService:
+    _instance = None
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            cls._instance._initialized = False
+        return cls._instance
+    
     def __init__(self):
-        self.client = None
-        self.session_string = settings.TELEGRAM_SESSION_STRING
+        if self._initialized:
+            return
+            
         self.api_id = settings.TELEGRAM_API_ID
         self.api_hash = settings.TELEGRAM_API_HASH
+        self.session_string = settings.TELEGRAM_SESSION_STRING
+        
+        # Создаем клиента сразу, но не подключаемся
+        self.client = TelegramClient(
+            StringSession(self.session_string),
+            self.api_id,
+            self.api_hash
+        )
+        
+        # Замок для синхронизации доступа к клиенту
+        self.client_lock = asyncio.Lock()
+        
+        # Отслеживаем состояние подключения
+        self.is_connected = False
+        self._initialized = True
+        
         logger.info("TelegramService initialized")
     
-    async def connect(self):
-        """Подключение к Telegram"""
-        if not self.client:
-            self.client = TelegramClient(
-                StringSession(self.session_string),
-                self.api_id, 
-                self.api_hash
-            )
-        
+    async def start(self):
+        """Запуск клиента при старте приложения"""
+        try:
+            if not self.is_connected:
+                logger.info("Starting Telegram client...")
+                await self.client.start()
+                self.is_connected = True
+                logger.info("Telegram client started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start Telegram client: {e}")
+            self.is_connected = False
+            raise
+    
+    async def close(self):
+        """Корректное закрытие клиента при завершении работы приложения"""
+        if self.is_connected:
+            logger.info("Disconnecting Telegram client...")
+            try:
+                # Освобождаем блокировку, если она активна
+                if self.client_lock.locked():
+                    self.client_lock.release()
+                    
+                # Отключаем клиента с таймаутом
+                await asyncio.wait_for(self.client.disconnect(), timeout=3.0)
+                self.is_connected = False
+                logger.info("Telegram client disconnected")
+            except Exception as e:
+                logger.error(f"Error during disconnect: {e}")
+                # Принудительно освобождаем ресурсы
+                self.client = None
+                self.is_connected = False
+    
+    async def ensure_connected(self):
+        """Проверка и восстановление соединения при необходимости"""
         if not self.client.is_connected():
-            await self.client.connect()
-            
-        if not await self.client.is_user_authorized():
-            logger.warning("User is not authorized. Session string is invalid or not provided.")
-            # В реальном сценарии здесь должна быть логика для авторизации пользователя
-            # через phone_login или bot_token, но для этого понадобится интерактивный ввод
-            raise ValueError("User is not authorized. Please provide a valid session string.")
-        
-        logger.info("Successfully connected to Telegram API")
-        return self.client
+            logger.info("Client is not connected, reconnecting...")
+            try:
+                await self.client.connect()
+                
+                # Проверяем авторизацию
+                is_authorized = await self.client.is_user_authorized()
+                if not is_authorized:
+                    logger.warning("User is not authorized. Session might be invalid.")
+                    raise ValueError("User is not authorized. Please provide a valid session string.")
+                
+                self.is_connected = True
+                logger.info("Reconnected successfully")
+            except Exception as e:
+                self.is_connected = False
+                logger.error(f"Failed to reconnect: {e}")
+                raise
     
-    async def disconnect(self):
-        """Отключение от Telegram"""
-        if self.client and self.client.is_connected():
-            await self.client.disconnect()
-            logger.info("Disconnected from Telegram API")
-    
-    async def generate_session_string(self, phone: str):
+    async def execute_telegram_operation(self, operation):
         """
-        Генерация строки сессии для последующего использования
-        Требует интерактивного ввода кода подтверждения
+        Выполняет операцию с Telegram API с обработкой соединения и блокировкой.
+        
+        Этот метод гарантирует, что:
+        1. Клиент подключен
+        2. Операция выполняется эксклюзивно (без конкурентного доступа)
+        3. Операция повторяется при временных проблемах
         """
-        if not self.client:
-            self.client = TelegramClient(
-                StringSession(), 
-                self.api_id, 
-                self.api_hash
-            )
+        max_retries = 3
+        retry_delay = 2
         
-        await self.client.connect()
-        await self.client.send_code_request(phone)
-        
-        # В реальном приложении здесь должен быть механизм получения кода от пользователя
-        # Например, через веб-интерфейс или API endpoint
-        code = input("Enter the code you received: ")
-        await self.client.sign_in(phone, code)
-        
-        session_string = self.client.session.save()
-        logger.info("Session string generated successfully")
-        
-        return session_string
+        for attempt in range(max_retries):
+            try:
+                # Используем блокировку для предотвращения конкурентного доступа
+                async with self.client_lock:
+                    # Проверяем и восстанавливаем соединение
+                    await self.ensure_connected()
+                    
+                    # Выполняем операцию
+                    return await operation()
+                    
+            except asyncio.CancelledError:
+                logger.warning(f"Operation was cancelled (attempt {attempt+1}/{max_retries})")
+                if attempt == max_retries - 1:
+                    logger.error("All retry attempts failed due to cancellation")
+                    raise ValueError("Operation was repeatedly cancelled. Please try again later.")
+                
+                # Экспоненциальная задержка перед повторной попыткой
+                await asyncio.sleep(retry_delay * (2 ** attempt))
+                
+            except Exception as e:
+                logger.error(f"Operation failed (attempt {attempt+1}/{max_retries}): {e}")
+                if attempt == max_retries - 1:
+                    logger.error("All retry attempts failed")
+                    raise
+                
+                # Экспоненциальная задержка перед повторной попыткой
+                await asyncio.sleep(retry_delay * (2 ** attempt))
     
     async def get_group_messages(
         self, 
@@ -80,10 +145,7 @@ class TelegramService:
         save_to_db: bool = False
     ) -> List[Dict[str, Any]]:
         """Получить сообщения из группы"""
-        try:
-            await self.connect()
-            
-            # Используем наш новый метод вместо прямого обращения к API
+        async def operation():
             entity = await self.get_entity(group_id)
             
             messages = []
@@ -109,11 +171,12 @@ class TelegramService:
             
             logger.info(f"Retrieved {len(messages)} messages from group {group_id}")
             return messages
+        
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving messages from group {group_id}: {e}")
             raise
-        finally:
-            await self.disconnect()
     
     async def _save_message_to_db(self, group_id: str, message: Dict[str, Any]):
         """Сохранить сообщение в базу данных"""
@@ -150,9 +213,7 @@ class TelegramService:
     
     async def get_group_info(self, group_id: str) -> Dict[str, Any]:
         """Получить информацию о группе"""
-        try:
-            await self.connect()
-            
+        async def operation():
             entity = await self.client.get_entity(group_id)
             group_info = {}
             
@@ -183,11 +244,12 @@ class TelegramService:
             
             logger.warning(f"Entity {group_id} is not a group or channel")
             return {}
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving group info for {group_id}: {e}")
             raise
-        finally:
-            await self.disconnect()
     
     async def _save_group_to_db(self, group_info: Dict[str, Any]):
         """Сохранить или обновить информацию о группе в базе данных"""
@@ -222,10 +284,7 @@ class TelegramService:
     
     async def get_moderators(self, group_id: str, save_to_db: bool = False) -> List[Dict[str, Any]]:
         """Получить список модераторов группы"""
-        try:
-            await self.connect()
-            
-            # Используем наш новый метод вместо прямого обращения к API
+        async def operation():
             entity = await self.get_entity(group_id)
             
             moderators = []
@@ -241,7 +300,7 @@ class TelegramService:
                         'last_name': user.last_name,
                         'is_bot': user.bot,
                         'is_moderator': True,
-                        'photo_url': None  # Можно добавить получение фото профиля при необходимости
+                        'photo_url': None
                     }
                     moderators.append(mod)
                     
@@ -251,11 +310,12 @@ class TelegramService:
             
             logger.info(f"Retrieved {len(moderators)} moderators from group {group_id}")
             return moderators
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving moderators from group {group_id}: {e}")
             raise
-        finally:
-            await self.disconnect()
     
     async def _save_user_to_db(self, user_data: Dict[str, Any], group_id: str = None):
         """Сохранить или обновить информацию о пользователе в базе данных"""
@@ -331,15 +391,13 @@ class TelegramService:
             logger.error(f"Error collecting data for group {group_id}: {e}")
             raise
     
-    # Дополнительные методы для работы с группами
-    
     async def get_group_members(self, group_id: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Получить участников группы"""
-        try:
-            await self.connect()
+        async def operation():
+            entity = await self.get_entity(group_id)
             
             members = []
-            async for user in self.client.iter_participants(group_id, limit=limit):
+            async for user in self.client.iter_participants(entity, limit=limit):
                 if isinstance(user, User):
                     member = {
                         'telegram_id': str(user.id),
@@ -354,19 +412,20 @@ class TelegramService:
             
             logger.info(f"Retrieved {len(members)} members from group {group_id}")
             return members
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving members from group {group_id}: {e}")
             raise
-        finally:
-            await self.disconnect()
     
     async def get_message_reactions(self, group_id: str, message_id: int) -> List[Dict[str, Any]]:
         """Получить реакции на сообщение"""
-        try:
-            await self.connect()
+        async def operation():
+            entity = await self.get_entity(group_id)
             
             # Получаем сообщение
-            message = await self.client.get_messages(group_id, ids=message_id)
+            message = await self.client.get_messages(entity, ids=message_id)
             
             if not message or not hasattr(message, 'reactions'):
                 return []
@@ -380,21 +439,22 @@ class TelegramService:
                     })
             
             return reactions
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving reactions for message {message_id} in group {group_id}: {e}")
             return []
-        finally:
-            await self.disconnect()
     
     async def get_message_thread(self, group_id: str, message_id: int, limit: int = 50) -> List[Dict[str, Any]]:
         """Получить ветку сообщений (ответы на конкретное сообщение)"""
-        try:
-            await self.connect()
+        async def operation():
+            entity = await self.get_entity(group_id)
             
             # Получаем сообщение
             thread_messages = []
             async for message in self.client.iter_messages(
-                group_id, 
+                entity, 
                 reply_to=message_id,
                 limit=limit
             ):
@@ -410,16 +470,16 @@ class TelegramService:
                     thread_messages.append(msg)
             
             return thread_messages
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving thread for message {message_id} in group {group_id}: {e}")
             return []
-        finally:
-            await self.disconnect()
 
-      
     async def get_entity(self, entity_id: str):
-        """Получить сущность Telegram по ID или имени без использования GetContactsRequest"""
-        try:
+        """Получить сущность Telegram по ID или имени"""
+        async def operation():
             # Проверяем, является ли entity_id числом (ID группы/канала)
             if str(entity_id).lstrip('-').isdigit():
                 # Если это число, преобразуем его в PeerChannel или PeerChat
@@ -437,8 +497,41 @@ class TelegramService:
                     return types.InputPeerUser(user_id=user_id, access_hash=0)
             
             # Если это не число, пытаемся получить сущность как обычно
-            # Это может вызвать GetEntity запрос, но не GetContacts
             return await self.client.get_entity(entity_id)
+            
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error getting entity {entity_id}: {e}")
             raise
+            
+    async def generate_session_string(self, phone: str):
+        """
+        Генерация строки сессии для последующего использования
+        Требует интерактивного ввода кода подтверждения
+        """
+        client = TelegramClient(
+            StringSession(), 
+            self.api_id,
+            self.api_hash
+        )
+        
+        try:
+            await client.connect()
+            await client.send_code_request(phone)
+            
+            # В реальном приложении здесь должен быть механизм получения кода от пользователя
+            # Например, через веб-интерфейс или API endpoint
+            code = input("Enter the code you received: ")
+            await client.sign_in(phone, code)
+            
+            session_string = client.session.save()
+            logger.info("Session string generated successfully")
+            
+            return session_string
+        except Exception as e:
+            logger.error(f"Error generating session string: {e}")
+            raise
+        finally:
+            if client.is_connected():
+                await client.disconnect()
