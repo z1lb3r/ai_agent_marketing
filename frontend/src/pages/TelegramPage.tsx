@@ -49,7 +49,7 @@ export const TelegramPage: React.FC = () => {
     
     try {
       // Вызываем новый эндпоинт с параметрами анализа
-      const response = await api.post(`/api/v1/telegram/groups/${groupId}/analyze`, {
+      const response = await api.post(`/telegram/groups/${groupId}/analyze`, {
         prompt: prompt,
         moderators: selectedModerators,
         days_back: daysBack
@@ -92,7 +92,7 @@ export const TelegramPage: React.FC = () => {
         .filter(m => m.length > 0);
       
       // Вызываем API для добавления группы
-      const response = await api.get(`/api/v1/telegram/groups_add`, {
+      const response = await api.get(`/telegram/groups_add`, {
         params: { 
           group_link: groupLink,
           moderators: moderatorsList.join(',')
