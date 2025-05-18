@@ -535,3 +535,45 @@ class TelegramService:
         finally:
             if client.is_connected():
                 await client.disconnect()
+
+    async def get_group_info_by_link(self, link_or_username: str) -> Dict[str, Any]:
+        """Получить информацию о группе по ссылке или username"""
+        async def operation():
+            try:
+                entity = await self.client.get_entity(link_or_username)
+                
+                group_info = {}
+                
+                if isinstance(entity, Channel) or isinstance(entity, Chat):
+                    # Получаем базовую информацию о группе
+                    group_info = {
+                        'id': str(entity.id),
+                        'title': getattr(entity, 'title', 'Unknown'),
+                        'username': getattr(entity, 'username', None),
+                        'description': getattr(entity, 'about', None) if hasattr(entity, 'about') else None,
+                        'participants_count': getattr(entity, 'participants_count', None) if hasattr(entity, 'participants_count') else None,
+                        'date': getattr(entity, 'date', datetime.now()).isoformat() if hasattr(entity, 'date') else datetime.now().isoformat(),
+                        'is_public': bool(getattr(entity, 'username', None))
+                    }
+                    
+                    # Дополнительная информация для каналов
+                    if isinstance(entity, Channel):
+                        group_info.update({
+                            'is_broadcast': getattr(entity, 'broadcast', False),
+                            'is_megagroup': getattr(entity, 'megagroup', False)
+                        })
+                    
+                    logger.info(f"Retrieved info for group {link_or_username}")
+                    return group_info
+                
+                logger.warning(f"Entity {link_or_username} is not a group or channel")
+                return {}
+            except Exception as e:
+                logger.error(f"Error getting entity {link_or_username}: {e}")
+                return {}
+                
+        try:
+            return await self.execute_telegram_operation(operation)
+        except Exception as e:
+            logger.error(f"Error retrieving group info for {link_or_username}: {e}")
+            return {}
