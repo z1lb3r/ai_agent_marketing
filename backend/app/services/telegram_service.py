@@ -142,32 +142,124 @@ class TelegramService:
         group_id: str, 
         limit: int = 100,
         offset_date: Optional[datetime] = None,
+        include_replies: bool = True,
+        get_users: bool = True,
         save_to_db: bool = False
     ) -> List[Dict[str, Any]]:
-        """Получить сообщения из группы"""
+        """
+        Получить сообщения из группы с дополнительной информацией
+        
+        Args:
+            group_id: ID группы
+            limit: Максимальное количество сообщений
+            offset_date: Дата, с которой начинать получение сообщений
+            include_replies: Включать ли ответы на сообщения
+            get_users: Получать ли информацию о пользователях
+            save_to_db: Сохранять ли сообщения в базу данных
+            
+        Returns:
+            Список сообщений с дополнительной информацией
+        """
         async def operation():
             entity = await self.get_entity(group_id)
             
             messages = []
+            users_cache = {}  # Кэш пользователей для уменьшения запросов
+            
+            # Получаем сообщения
             async for message in self.client.iter_messages(
                 entity, 
                 limit=limit,
                 offset_date=offset_date
             ):
                 if isinstance(message, Message):
+                    # Базовая информация о сообщении
                     msg = {
                         'message_id': str(message.id),
                         'text': message.text or "",
                         'date': message.date.isoformat(),
                         'sender_id': str(message.sender_id) if message.sender_id else None,
                         'is_reply': message.reply_to is not None,
-                        'reply_to_message_id': str(message.reply_to.reply_to_msg_id) if message.reply_to else None
+                        'reply_to_message_id': str(message.reply_to.reply_to_msg_id) if message.reply_to else None,
+                        'has_media': message.media is not None,
+                        'edit_date': message.edit_date.isoformat() if message.edit_date else None,
+                        'views': message.views if hasattr(message, 'views') else None,
+                        'reactions': []
                     }
+                    
+                    # Добавляем информацию о реакциях
+                    if hasattr(message, 'reactions') and message.reactions:
+                        for reaction in message.reactions.results:
+                            msg['reactions'].append({
+                                'emoji': reaction.reaction,
+                                'count': reaction.count
+                            })
+                    
+                    # Получаем информацию об отправителе, если нужно
+                    if get_users and message.sender_id:
+                        sender_id = str(message.sender_id)
+                        if sender_id not in users_cache:
+                            try:
+                                sender = await message.get_sender()
+                                users_cache[sender_id] = {
+                                    'id': sender_id,
+                                    'username': getattr(sender, 'username', None),
+                                    'first_name': getattr(sender, 'first_name', None),
+                                    'last_name': getattr(sender, 'last_name', None),
+                                    'is_bot': getattr(sender, 'bot', False),
+                                    'is_premium': getattr(sender, 'premium', False) if hasattr(sender, 'premium') else False
+                                }
+                            except Exception as e:
+                                logger.warning(f"Failed to get sender for message {message.id}: {e}")
+                        
+                        if sender_id in users_cache:
+                            msg['sender'] = users_cache[sender_id]
+                    
+                    # Получаем сообщение, на которое отвечают
+                    if include_replies and message.reply_to:
+                        try:
+                            replied_msg = await message.get_reply_message()
+                            if replied_msg:
+                                msg['replied_message'] = {
+                                    'message_id': str(replied_msg.id),
+                                    'text': replied_msg.text or "",
+                                    'date': replied_msg.date.isoformat(),
+                                    'sender_id': str(replied_msg.sender_id) if replied_msg.sender_id else None
+                                }
+                                
+                                # Добавляем информацию об отправителе сообщения, на которое отвечают
+                                if get_users and replied_msg.sender_id:
+                                    replied_sender_id = str(replied_msg.sender_id)
+                                    if replied_sender_id not in users_cache:
+                                        try:
+                                            replied_sender = await replied_msg.get_sender()
+                                            users_cache[replied_sender_id] = {
+                                                'id': replied_sender_id,
+                                                'username': getattr(replied_sender, 'username', None),
+                                                'first_name': getattr(replied_sender, 'first_name', None),
+                                                'last_name': getattr(replied_sender, 'last_name', None),
+                                                'is_bot': getattr(replied_sender, 'bot', False)
+                                            }
+                                        except Exception as e:
+                                            logger.warning(f"Failed to get sender for replied message {replied_msg.id}: {e}")
+                                    
+                                    if replied_sender_id in users_cache:
+                                        msg['replied_message']['sender'] = users_cache[replied_sender_id]
+                        except Exception as e:
+                            logger.warning(f"Failed to get replied message for message {message.id}: {e}")
+                    
                     messages.append(msg)
                     
                     # Сохраняем в базу данных если требуется
                     if save_to_db:
                         await self._save_message_to_db(group_id, msg)
+                        
+                        # Сохраняем пользователей
+                        if get_users:
+                            for user_id, user_data in users_cache.items():
+                                is_moderator = await self._check_if_moderator(entity, user_id)
+                                user_data['is_moderator'] = is_moderator
+                                await self._save_user_to_db(user_data, group_id)
             
             logger.info(f"Retrieved {len(messages)} messages from group {group_id}")
             return messages
@@ -577,3 +669,260 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error retrieving group info for {link_or_username}: {e}")
             return {}
+        
+    async def _check_if_moderator(self, entity, user_id: str) -> bool:
+        """Проверить, является ли пользователь модератором группы"""
+        try:
+            # Преобразуем user_id из строки в int
+            user_id_int = int(user_id)
+            
+            # Получаем информацию о правах пользователя
+            participant = await self.client.get_permissions(entity, user_id_int)
+            
+            # Проверяем права администратора
+            return participant.is_admin
+        except Exception as e:
+            logger.warning(f"Failed to check if user {user_id} is moderator: {e}")
+            return False
+        
+    async def get_conversation_threads(self, group_id: str, days_back: int = 7) -> List[Dict[str, Any]]:
+        """
+        Получить цепочки диалогов между пользователями и модераторами
+        
+        Args:
+            group_id: ID группы
+            days_back: За сколько дней назад получать сообщения
+            
+        Returns:
+            Список цепочек диалогов
+        """
+        try:
+            # Вычисляем дату, с которой начинать получение сообщений
+            offset_date = datetime.now() - timedelta(days=days_back)
+            
+            # Получаем сообщения
+            messages = await self.get_group_messages(
+                group_id, 
+                limit=500,  # Увеличиваем лимит для более полного анализа
+                offset_date=offset_date,
+                include_replies=True,
+                get_users=True
+            )
+            
+            # Организуем сообщения по цепочкам
+            threads = {}
+            standalone_messages = []
+            
+            # Сначала группируем сообщения по reply_to_message_id
+            for msg in messages:
+                if msg['is_reply'] and msg['reply_to_message_id']:
+                    thread_id = msg['reply_to_message_id']
+                    if thread_id not in threads:
+                        threads[thread_id] = {
+                            'root_message_id': thread_id,
+                            'messages': []
+                        }
+                    threads[thread_id]['messages'].append(msg)
+                else:
+                    standalone_messages.append(msg)
+            
+            # Дополняем цепочки корневыми сообщениями
+            for msg in standalone_messages:
+                if msg['message_id'] in threads:
+                    threads[msg['message_id']]['root_message'] = msg
+            
+            # Преобразуем в список и сортируем по дате
+            thread_list = []
+            for thread_id, thread in threads.items():
+                if 'root_message' in thread:
+                    # Добавляем дополнительную информацию о цепочке
+                    thread['start_date'] = thread['root_message']['date']
+                    thread['participants'] = set()
+                    thread['moderator_involved'] = False
+                    
+                    # Добавляем отправителя корневого сообщения
+                    if 'sender' in thread['root_message']:
+                        thread['participants'].add(thread['root_message']['sender']['id'])
+                        if thread['root_message']['sender'].get('is_moderator', False):
+                            thread['moderator_involved'] = True
+                    
+                    # Добавляем отправителей ответов
+                    for msg in thread['messages']:
+                        if 'sender' in msg:
+                            thread['participants'].add(msg['sender']['id'])
+                            if msg['sender'].get('is_moderator', False):
+                                thread['moderator_involved'] = True
+                    
+                    # Конвертируем set в list для сериализации
+                    thread['participants'] = list(thread['participants'])
+                    
+                    # Вычисляем время первого ответа модератора
+                    if thread['moderator_involved']:
+                        thread['first_moderator_response_time'] = self._calculate_first_response_time(
+                            thread['root_message'],
+                            thread['messages']
+                        )
+                    
+                    thread_list.append(thread)
+            
+            # Сортируем по дате начала, самые новые первыми
+            thread_list.sort(key=lambda x: x['start_date'], reverse=True)
+            
+            return thread_list
+        except Exception as e:
+            logger.error(f"Error getting conversation threads for group {group_id}: {e}")
+            raise
+
+    def _calculate_first_response_time(self, root_message: Dict[str, Any], replies: List[Dict[str, Any]]) -> Optional[float]:
+        """
+        Вычислить время первого ответа модератора на сообщение
+        
+        Args:
+            root_message: Корневое сообщение
+            replies: Ответы на сообщение
+            
+        Returns:
+            Время ответа в минутах или None, если ответа не было
+        """
+        # Проверяем, что корневое сообщение не от модератора
+        if root_message.get('sender', {}).get('is_moderator', False):
+            return None
+        
+        # Сортируем ответы по дате
+        sorted_replies = sorted(replies, key=lambda x: x['date'])
+        
+        # Ищем первый ответ от модератора
+        for reply in sorted_replies:
+            if reply.get('sender', {}).get('is_moderator', False):
+                # Преобразуем строки в datetime
+                root_date = datetime.fromisoformat(root_message['date'].replace('Z', '+00:00'))
+                reply_date = datetime.fromisoformat(reply['date'].replace('Z', '+00:00'))
+                
+                # Вычисляем разницу в минутах
+                time_diff = (reply_date - root_date).total_seconds() / 60
+                return time_diff
+        
+        return None
+    
+    async def prepare_data_for_analysis(self, group_id: str, days_back: int = 7) -> Dict[str, Any]:
+        """
+        Подготовить данные для анализа
+        
+        Args:
+            group_id: ID группы
+            days_back: За сколько дней назад получать данные
+            
+        Returns:
+            Словарь с данными для анализа
+        """
+        try:
+            # Получаем информацию о группе
+            group_info = await self.get_group_info(group_id)
+            
+            # Получаем модераторов
+            moderators = await self.get_moderators(group_id, save_to_db=True)
+            
+            # Получаем цепочки диалогов
+            threads = await self.get_conversation_threads(group_id, days_back)
+            
+            # Вычисляем метрики
+            metrics = self._calculate_metrics(threads, moderators)
+            
+            # Формируем данные для анализа
+            analysis_data = {
+                'group': group_info,
+                'period': {
+                    'start_date': (datetime.now() - timedelta(days=days_back)).isoformat(),
+                    'end_date': datetime.now().isoformat(),
+                    'days': days_back
+                },
+                'moderators': moderators,
+                'conversation_threads': threads,
+                'metrics': metrics
+            }
+            
+            return analysis_data
+        except Exception as e:
+            logger.error(f"Error preparing data for analysis for group {group_id}: {e}")
+            raise
+
+    def _calculate_metrics(self, threads: List[Dict[str, Any]], moderators: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Вычислить метрики на основе данных о диалогах
+        
+        Args:
+            threads: Цепочки диалогов
+            moderators: Модераторы группы
+            
+        Returns:
+            Словарь с метриками
+        """
+        # Инициализируем метрики
+        metrics = {
+            'total_threads': len(threads),
+            'moderator_involved_threads': 0,
+            'response_times': [],
+            'response_time_avg': None,
+            'response_time_min': None,
+            'response_time_max': None,
+            'moderator_activity': {},
+            'thread_length_avg': 0
+        }
+        
+        # Инициализируем данные по модераторам
+        for mod in moderators:
+            mod_id = mod['telegram_id']
+            metrics['moderator_activity'][mod_id] = {
+                'threads_participated': 0,
+                'messages_sent': 0,
+                'avg_response_time': None,
+                'response_times': []
+            }
+        
+        # Обрабатываем каждую цепочку
+        total_messages = 0
+        for thread in threads:
+            # Считаем общее количество сообщений
+            thread_messages = len(thread.get('messages', [])) + 1  # +1 для корневого сообщения
+            total_messages += thread_messages
+            
+            # Если в цепочке участвовал модератор
+            if thread.get('moderator_involved', False):
+                metrics['moderator_involved_threads'] += 1
+                
+                # Добавляем время ответа, если есть
+                response_time = thread.get('first_moderator_response_time')
+                if response_time is not None:
+                    metrics['response_times'].append(response_time)
+                    
+                    # Обновляем статистику по каждому модератору
+                    for msg in thread.get('messages', []):
+                        if msg.get('sender', {}).get('is_moderator', False):
+                            mod_id = msg['sender']['id']
+                            if mod_id in metrics['moderator_activity']:
+                                metrics['moderator_activity'][mod_id]['threads_participated'] += 1
+                                metrics['moderator_activity'][mod_id]['messages_sent'] += 1
+                                
+                                # Вычисляем время ответа для конкретного модератора
+                                if 'replied_message' in msg:
+                                    root_date = datetime.fromisoformat(msg['replied_message']['date'].replace('Z', '+00:00'))
+                                    msg_date = datetime.fromisoformat(msg['date'].replace('Z', '+00:00'))
+                                    mod_response_time = (msg_date - root_date).total_seconds() / 60
+                                    metrics['moderator_activity'][mod_id]['response_times'].append(mod_response_time)
+        
+        # Вычисляем среднюю длину цепочки
+        if metrics['total_threads'] > 0:
+            metrics['thread_length_avg'] = total_messages / metrics['total_threads']
+        
+        # Вычисляем статистику по времени ответа
+        if metrics['response_times']:
+            metrics['response_time_avg'] = sum(metrics['response_times']) / len(metrics['response_times'])
+            metrics['response_time_min'] = min(metrics['response_times'])
+            metrics['response_time_max'] = max(metrics['response_times'])
+        
+        # Вычисляем среднее время ответа для каждого модератора
+        for mod_id, activity in metrics['moderator_activity'].items():
+            if activity['response_times']:
+                activity['avg_response_time'] = sum(activity['response_times']) / len(activity['response_times'])
+        
+        return metrics

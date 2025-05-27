@@ -3,61 +3,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.v1 import telegram, moderators, analytics, auth
 from .core.config import settings
-import asyncio
-
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
-)
-
-# CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],  # Frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Включаем роутеры
-app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
-app.include_router(telegram.router, prefix=f"{settings.API_V1_STR}/telegram", tags=["telegram"])
-app.include_router(moderators.router, prefix=f"{settings.API_V1_STR}/moderators", tags=["moderators"])
-app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
-
-@app.get("/")
-async def root():
-    return {"message": "Multi-Channel Analyzer API"}
-
-
-
-
-# # backend/app/main.py
-# from fastapi import FastAPI
-# from .api.v1 import telegram, moderators, analytics, auth
-# from .core.config import settings
-
-# app = FastAPI(
-#     title=settings.PROJECT_NAME,
-#     openapi_url=f"{settings.API_V1_STR}/openapi.json"
-# )
-
-# # Убираем CORS middleware для упрощения
-
-# # Включаем роутеры
-# app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["auth"])
-# app.include_router(telegram.router, prefix=f"{settings.API_V1_STR}/telegram", tags=["telegram"])
-# app.include_router(moderators.router, prefix=f"{settings.API_V1_STR}/moderators", tags=["moderators"])
-# app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
-
-# @app.get("/")
-# async def root():
-#     return {"message": "Multi-Channel Analyzer API"}# backend/app/main.py
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from .api.v1 import telegram, moderators, analytics, auth
-from .core.config import settings
 from .services.telegram_service import TelegramService
+import asyncio
 import logging
 
 # Настройка логирования
@@ -83,17 +30,11 @@ app.include_router(telegram.router, prefix=f"{settings.API_V1_STR}/telegram", ta
 app.include_router(moderators.router, prefix=f"{settings.API_V1_STR}/moderators", tags=["moderators"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
 
-# Инициализация Telegram клиента при запуске приложения
+# Безопасный startup event без блокирующих операций
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Starting application...")
-    telegram_service = TelegramService()
-    try:
-        await telegram_service.start()
-        logger.info("Telegram client started successfully")
-    except Exception as e:
-        logger.error(f"Error starting Telegram client: {e}")
-        logger.warning("Application will continue, but Telegram functionality may be limited")
+    logger.info("Starting Multi-Channel Analyzer API...")
+    logger.info("Application started successfully. Telegram client will be initialized on demand.")
 
 # Корректное закрытие клиента при остановке приложения
 @app.on_event("shutdown")
@@ -116,3 +57,19 @@ async def shutdown_event():
 @app.get("/")
 async def root():
     return {"message": "Multi-Channel Analyzer API"}
+
+
+# Закомментированный старый код для справки:
+"""
+# Инициализация Telegram клиента при запуске приложения - ОТКЛЮЧЕНО
+@app.on_event("startup")
+async def startup_event():
+    logger.info("Starting application...")
+    telegram_service = TelegramService()
+    try:
+        await telegram_service.start()  # ЭТА СТРОКА БЛОКИРОВАЛА ЗАПУСК
+        logger.info("Telegram client started successfully")
+    except Exception as e:
+        logger.error(f"Error starting Telegram client: {e}")
+        logger.warning("Application will continue, but Telegram functionality may be limited")
+"""
