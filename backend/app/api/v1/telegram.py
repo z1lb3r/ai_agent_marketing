@@ -603,3 +603,260 @@ def extract_group_identifier(link: str) -> str:
     
     # Возвращаем как есть
     return link
+
+
+@router.get("/debug/connection")
+async def debug_telegram_connection():
+    """Диагностика подключения к Telegram API"""
+    try:
+        logger.info("Starting Telegram connection diagnostics...")
+        
+        # Проверяем конфигурацию
+        config_status = {
+            "api_id_configured": bool(settings.TELEGRAM_API_ID),
+            "api_hash_configured": bool(settings.TELEGRAM_API_HASH),
+            "session_string_configured": bool(settings.TELEGRAM_SESSION_STRING),
+            "session_string_length": len(settings.TELEGRAM_SESSION_STRING) if settings.TELEGRAM_SESSION_STRING else 0
+        }
+        
+        # Пробуем подключиться к Telegram
+        connection_test = await test_telegram_connection()
+        
+        return {
+            "status": "success",
+            "config": config_status,
+            "connection": connection_test,
+            "timestamp": datetime.now().isoformat()
+        }
+    except Exception as e:
+        logger.error(f"Debug connection failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "config": config_status if 'config_status' in locals() else {},
+            "timestamp": datetime.now().isoformat()
+        }
+
+async def test_telegram_connection():
+    """Тестирование подключения к Telegram API"""
+    try:
+        # Получаем информацию о текущем пользователе
+        async def get_me_operation():
+            me = await telegram_service.client.get_me()
+            return {
+                "user_id": str(me.id),
+                "first_name": me.first_name,
+                "last_name": me.last_name,
+                "username": me.username,
+                "phone": me.phone,
+                "is_premium": getattr(me, 'premium', False)
+            }
+        
+        user_info = await telegram_service.execute_telegram_operation(get_me_operation)
+        
+        # Получаем список диалогов (первые 5)
+        async def get_dialogs_operation():
+            dialogs = []
+            count = 0
+            async for dialog in telegram_service.client.iter_dialogs(limit=5):
+                dialogs.append({
+                    "id": str(dialog.id),
+                    "name": dialog.name,
+                    "is_group": dialog.is_group,
+                    "is_channel": dialog.is_channel,
+                    "is_user": dialog.is_user
+                })
+                count += 1
+                if count >= 5:
+                    break
+            return dialogs
+        
+        dialogs_info = await telegram_service.execute_telegram_operation(get_dialogs_operation)
+        
+        return {
+            "connected": True,
+            "user": user_info,
+            "dialogs_count": len(dialogs_info),
+            "sample_dialogs": dialogs_info,
+            "message": "Successfully connected to Telegram API"
+        }
+        
+    except Exception as e:
+        logger.error(f"Telegram connection test failed: {str(e)}")
+        return {
+            "connected": False,
+            "error": str(e),
+            "message": "Failed to connect to Telegram API"
+        }
+
+@router.get("/debug/group/{group_id}")
+async def debug_group_access(group_id: str):
+    """Диагностика доступа к конкретной группе"""
+    try:
+        logger.info(f"Testing access to group {group_id}")
+        
+        # Проверяем существование группы в БД
+        db_group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not db_group.data:
+            return {
+                "status": "error",
+                "error": f"Group {group_id} not found in database"
+            }
+        
+        group_data = db_group.data[0]
+        telegram_group_id = group_data["group_id"]
+        
+        # Тестируем доступ к группе через Telegram API
+        async def test_group_access():
+            try:
+                # Пробуем получить информацию о группе
+                entity = await telegram_service.get_entity(telegram_group_id)
+                
+                # Пробуем получить базовую информацию
+                if hasattr(entity, 'title'):
+                    title = entity.title
+                elif hasattr(entity, 'first_name'):
+                    title = f"{entity.first_name} {getattr(entity, 'last_name', '')}"
+                else:
+                    title = "Unknown"
+                
+                return {
+                    "entity_found": True,
+                    "entity_type": type(entity).__name__,
+                    "title": title,
+                    "telegram_id": str(getattr(entity, 'id', 'unknown'))
+                }
+            except Exception as e:
+                return {
+                    "entity_found": False,
+                    "error": str(e)
+                }
+        
+        group_access_result = await telegram_service.execute_telegram_operation(test_group_access)
+        
+        return {
+            "status": "success",
+            "database_group": {
+                "id": group_data["id"],
+                "name": group_data["name"],
+                "telegram_id": telegram_group_id
+            },
+            "telegram_access": group_access_result,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Group debug failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+    
+@router.get("/health")
+async def telegram_health_check():
+    """Проверка здоровья Telegram API соединения"""
+    try:
+        health_status = await telegram_service.health_check()
+        
+        if health_status["status"] == "healthy":
+            return health_status
+        else:
+            raise HTTPException(status_code=503, detail=health_status)
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        raise HTTPException(status_code=500, detail={
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        })
+
+@router.post("/reconnect")
+async def force_telegram_reconnect():
+    """Принудительное переподключение к Telegram API"""
+    try:
+        logger.info("Forcing Telegram reconnection...")
+        
+        # Отключаемся
+        await telegram_service.disconnect()
+        
+        # Подключаемся заново
+        await telegram_service.connect_with_retry(max_retries=3)
+        
+        # Проверяем статус
+        health_status = await telegram_service.health_check()
+        
+        return {
+            "status": "success",
+            "message": "Reconnection completed",
+            "health": health_status,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Forced reconnection failed: {str(e)}")
+        raise HTTPException(status_code=500, detail={
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        })
+
+# Также обновить существующий метод get_group_info
+@router.get("/groups/{group_id}/info/detailed")
+async def get_detailed_group_info(group_id: str):
+    """Получить детальную информацию о группе с диагностикой"""
+    try:
+        logger.info(f"Getting detailed info for group {group_id}")
+        
+        # Проверяем группу в БД
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group.data:
+            raise HTTPException(status_code=404, detail="Group not found in database")
+        
+        group_data = group.data[0]
+        telegram_group_id = group_data["group_id"]
+        
+        # Проверяем подключение
+        health = await telegram_service.health_check()
+        
+        if health["status"] != "healthy":
+            return {
+                "status": "error",
+                "message": "Telegram API connection is not healthy",
+                "health": health,
+                "database_group": group_data
+            }
+        
+        # Получаем актуальную информацию из Telegram
+        try:
+            telegram_info = await telegram_service.get_group_info(telegram_group_id)
+            
+            return {
+                "status": "success",
+                "database_group": group_data,
+                "telegram_info": telegram_info,
+                "health": health,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as telegram_error:
+            logger.error(f"Failed to get Telegram info: {str(telegram_error)}")
+            return {
+                "status": "partial_success",
+                "message": "Database info available, but Telegram API failed",
+                "database_group": group_data,
+                "telegram_error": str(telegram_error),
+                "health": health,
+                "timestamp": datetime.now().isoformat()
+            }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Detailed group info failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

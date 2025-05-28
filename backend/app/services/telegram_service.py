@@ -96,6 +96,28 @@ class TelegramService:
                 self.is_connected = False
                 logger.error(f"Failed to reconnect: {e}")
                 raise
+
+
+    async def ensure_connected_with_diagnostics(self):
+        """Проверка подключения с расширенной диагностикой"""
+        try:
+            if not self.client.is_connected():
+                logger.info("Client not connected, attempting to reconnect...")
+                await self.connect_with_retry()
+            
+            # Дополнительная проверка авторизации
+            if not await self.client.is_user_authorized():
+                logger.error("Lost authorization, attempting to reconnect...")
+                await self.disconnect()
+                await self.connect_with_retry()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Connection diagnostics failed: {str(e)}")
+            self.is_connected = False
+            raise
+
     
     async def execute_telegram_operation(self, operation):
         """
@@ -570,32 +592,38 @@ class TelegramService:
             return []
 
     async def get_entity(self, entity_id: str):
-        """Получить сущность Telegram по ID или имени"""
+        """Исправленное получение сущности Telegram"""
         async def operation():
-            # Проверяем, является ли entity_id числом (ID группы/канала)
-            if str(entity_id).lstrip('-').isdigit():
-                # Если это число, преобразуем его в PeerChannel или PeerChat
-                if str(entity_id).startswith('-100'):
-                    # Это ID канала в формате -100xxxxxxxxx
-                    channel_id = int(str(entity_id)[4:])
-                    return types.InputPeerChannel(channel_id=channel_id, access_hash=0)
-                elif str(entity_id).startswith('-'):
-                    # Это ID группы в формате -xxxxxxxxx
-                    chat_id = abs(int(entity_id))
-                    return types.InputPeerChat(chat_id=chat_id)
-                else:
-                    # Это ID пользователя
-                    user_id = int(entity_id)
-                    return types.InputPeerUser(user_id=user_id, access_hash=0)
-            
-            # Если это не число, пытаемся получить сущность как обычно
-            return await self.client.get_entity(entity_id)
-            
+            try:
+                # Сначала пробуем получить как есть
+                return await self.client.get_entity(entity_id)
+            except Exception as e1:
+                logger.warning(f"Direct entity lookup failed: {e1}")
+                
+                # Если не получилось, пробуем разные форматы
+                try:
+                    # Убираем @ если есть
+                    clean_id = entity_id.lstrip('@')
+                    return await self.client.get_entity(clean_id)
+                except Exception as e2:
+                    logger.warning(f"Clean ID lookup failed: {e2}")
+                    
+                    # Пробуем как число если это возможно
+                    try:
+                        if str(entity_id).lstrip('-').isdigit():
+                            numeric_id = int(entity_id)
+                            return await self.client.get_entity(numeric_id)
+                    except Exception as e3:
+                        logger.warning(f"Numeric ID lookup failed: {e3}")
+                        
+                    # Если ничего не помогло, выбрасываем исходную ошибку
+                    raise e1
+        
         try:
             return await self.execute_telegram_operation(operation)
         except Exception as e:
-            logger.error(f"Error getting entity {entity_id}: {e}")
-            raise
+            logger.error(f"Failed to get entity {entity_id}: {e}")
+            raise ValueError(f"Entity {entity_id} not found or not accessible. Error: {str(e)}")
             
     async def generate_session_string(self, phone: str):
         """
@@ -926,3 +954,88 @@ class TelegramService:
                 activity['avg_response_time'] = sum(activity['response_times']) / len(activity['response_times'])
         
         return metrics
+    
+    
+    async def connect_with_retry(self, max_retries: int = 3):
+        """Подключение к Telegram с повторными попытками и диагностикой"""
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Attempting to connect to Telegram (attempt {attempt + 1}/{max_retries})")
+                
+                # Проверяем конфигурацию
+                if not self.api_id or not self.api_hash:
+                    raise ValueError("TELEGRAM_API_ID and TELEGRAM_API_HASH must be configured")
+                
+                if not self.session_string:
+                    raise ValueError("TELEGRAM_SESSION_STRING must be configured")
+                
+                # Логируем конфигурацию (без раскрытия секретов)
+                logger.info(f"API ID configured: {bool(self.api_id)}")
+                logger.info(f"API Hash configured: {bool(self.api_hash)}")
+                logger.info(f"Session string length: {len(self.session_string)}")
+                
+                # Подключаемся
+                if not self.client.is_connected():
+                    await self.client.connect()
+                    logger.info("Connected to Telegram servers")
+                
+                # Проверяем авторизацию
+                if not await self.client.is_user_authorized():
+                    logger.error("User is not authorized. Session string might be invalid or expired.")
+                    raise ValueError("User is not authorized. Please regenerate session string.")
+                
+                # Получаем информацию о текущем пользователе для проверки
+                me = await self.client.get_me()
+                logger.info(f"Successfully authenticated as: {me.first_name} (@{me.username})")
+                
+                self.is_connected = True
+                return True
+                
+            except Exception as e:
+                logger.error(f"Connection attempt {attempt + 1} failed: {str(e)}")
+                
+                if attempt == max_retries - 1:
+                    logger.error("All connection attempts failed")
+                    self.is_connected = False
+                    raise
+                
+                # Ждем перед следующей попыткой
+                await asyncio.sleep(2 ** attempt)  # Экспоненциальная задержка
+        
+        return False
+    
+
+    async def disconnect(self):
+        """Безопасное отключение"""
+        try:
+            if hasattr(self, 'client') and self.client and self.client.is_connected():
+                await self.client.disconnect()
+                logger.info("Disconnected from Telegram")
+            self.is_connected = False
+        except Exception as e:
+            logger.error(f"Error during disconnect: {e}")
+            self.is_connected = False
+
+        
+    async def health_check(self):
+        """Проверка здоровья Telegram соединения"""
+        try:
+            await self.ensure_connected_with_diagnostics()
+            
+            # Простая операция для проверки работоспособности
+            me = await self.client.get_me()
+            
+            return {
+                "status": "healthy",
+                "connected": True,
+                "user_id": str(me.id),
+                "username": me.username,
+                "timestamp": datetime.now().isoformat()
+            }
+        except Exception as e:
+            return {
+                "status": "unhealthy", 
+                "connected": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat()
+            }
