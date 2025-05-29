@@ -1039,3 +1039,36 @@ class TelegramService:
                 "error": str(e),
                 "timestamp": datetime.now().isoformat()
             }
+        
+    async def get_messages_simple(self, group_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Упрощенное получение сообщений - только базовая информация
+        БЕЗ дополнительных API вызовов
+        """
+        async def operation():
+            entity = await self.get_entity(group_id)
+            
+            messages = []
+            async for message in self.client.iter_messages(entity, limit=limit):
+                if isinstance(message, Message):
+                    # Только базовые поля без дополнительных запросов
+                    msg = {
+                        'message_id': str(message.id),
+                        'text': message.text or "",
+                        'date': message.date.isoformat(),
+                        'sender_id': str(message.sender_id) if message.sender_id else None,
+                        'is_reply': message.reply_to is not None,
+                        'reply_to_message_id': str(message.reply_to.reply_to_msg_id) if message.reply_to else None,
+                        'has_media': message.media is not None,
+                        'views': message.views if hasattr(message, 'views') else None
+                    }
+                    messages.append(msg)
+            
+            logger.info(f"Retrieved {len(messages)} messages (simple) from group {group_id}")
+            return messages
+        
+        try:
+            return await self.execute_telegram_operation(operation)
+        except Exception as e:
+            logger.error(f"Error retrieving simple messages from group {group_id}: {e}")
+            raise

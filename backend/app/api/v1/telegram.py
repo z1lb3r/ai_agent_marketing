@@ -936,3 +936,53 @@ async def test_telegram_entity(telegram_id: str):
             "error": str(e),
             "timestamp": datetime.now().isoformat()
         }
+    
+@router.get("/groups/{group_id}/messages/simple")
+async def get_group_messages_simple(group_id: str, limit: int = Query(10, ge=1, le=100)):
+    """Получить сообщения из группы (упрощенная версия без дополнительных API вызовов)"""
+    try:
+        logger.debug(f"Fetching simple messages for group {group_id} with limit {limit}")
+        
+        # Проверяем существование группы
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group.data:
+            logger.warning(f"Group with ID {group_id} not found")
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Получаем телеграм ID группы
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем сообщения через упрощенный метод
+        messages_data = await telegram_service.get_messages_simple(telegram_group_id, limit=limit)
+        
+        logger.debug(f"Successfully fetched {len(messages_data)} simple messages")
+        return {
+            "status": "success",
+            "count": len(messages_data),
+            "messages": messages_data
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching simple messages: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@router.get("/groups/{group_id}/entity-only")
+async def test_entity_only(group_id: str):
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        return {
+            "status": "success",
+            "entity_type": type(entity).__name__,
+            "entity_id": str(entity.id),
+            "title": getattr(entity, 'title', 'Unknown')
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
