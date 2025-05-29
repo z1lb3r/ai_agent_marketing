@@ -860,3 +860,79 @@ async def get_detailed_group_info(group_id: str):
     except Exception as e:
         logger.error(f"Detailed group info failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+@router.get("/debug/simple/{group_id}")
+async def simple_group_debug(group_id: str):
+    """Упрощенная диагностика группы без Telegram API вызовов"""
+    try:
+        logger.info(f"Simple debug for group {group_id}")
+        
+        # Только проверяем базу данных
+        db_group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not db_group.data:
+            return {
+                "status": "error",
+                "error": f"Group {group_id} not found in database"
+            }
+        
+        group_data = db_group.data[0]
+        telegram_group_id = group_data["group_id"]
+        
+        return {
+            "status": "success",
+            "database_group": group_data,
+            "telegram_id": telegram_group_id,
+            "ready_for_telegram_test": True,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Simple debug failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@router.get("/debug/telegram-entity/{telegram_id}")
+async def test_telegram_entity(telegram_id: str):
+    """Тестирование получения entity из Telegram"""
+    try:
+        logger.info(f"Testing Telegram entity for {telegram_id}")
+        
+        # Простой тест получения entity
+        async def get_entity_test():
+            try:
+                entity = await telegram_service.client.get_entity(int(telegram_id))
+                return {
+                    "success": True,
+                    "entity_type": type(entity).__name__,
+                    "entity_id": str(entity.id),
+                    "title": getattr(entity, 'title', getattr(entity, 'first_name', 'Unknown'))
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+        
+        # Выполняем без execute_telegram_operation для простоты
+        await telegram_service.ensure_connected()
+        result = await get_entity_test()
+        
+        return {
+            "status": "success",
+            "telegram_id": telegram_id,
+            "entity_test": result,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Entity test failed: {str(e)}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
