@@ -9,6 +9,7 @@ import logging
 import traceback
 import uuid
 import json
+import asyncio
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -984,5 +985,263 @@ async def test_entity_only(group_id: str):
             "entity_id": str(entity.id),
             "title": getattr(entity, 'title', 'Unknown')
         }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+    
+@router.get("/groups/{group_id}/test-iter-messages")
+async def test_iter_messages_direct(group_id: str):
+    """Тест iter_messages без execute_telegram_operation"""
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем entity
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        # Простейший iter_messages без execute_telegram_operation
+        messages = []
+        count = 0
+        async for message in telegram_service.client.iter_messages(entity, limit=1):
+            count += 1
+            messages.append({"id": str(message.id), "text": message.text or ""})
+            break  # Только 1 сообщение
+            
+        return {"status": "success", "count": count, "messages": messages}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@router.get("/groups/{group_id}/test-iter-timeout")
+async def test_iter_messages_with_timeout(group_id: str):
+    """Тест iter_messages с таймаутом 15 секунд"""
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем entity
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        # iter_messages с таймаутом
+        messages = []
+        count = 0
+        
+        async def get_messages_with_timeout():
+            async for message in telegram_service.client.iter_messages(entity, limit=5):
+                count += 1
+                messages.append({
+                    "id": str(message.id), 
+                    "text": message.text or "",
+                    "date": message.date.isoformat()
+                })
+                if count >= 5:
+                    break
+            return messages
+        
+        # Устанавливаем таймаут 15 секунд
+        result = await asyncio.wait_for(get_messages_with_timeout(), timeout=15.0)
+        
+        return {
+            "status": "success", 
+            "count": len(result), 
+            "messages": result,
+            "note": "Completed within timeout"
+        }
+        
+    except asyncio.TimeoutError:
+        return {
+            "status": "timeout", 
+            "error": "iter_messages timed out after 15 seconds",
+            "partial_count": count,
+            "partial_messages": messages
+        }
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@router.get("/groups/{group_id}/test-get-messages-alternative")
+async def test_get_messages_alternative(group_id: str):
+    """Альтернативный метод - get_messages вместо iter_messages"""
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем entity
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        # Пробуем get_messages вместо iter_messages
+        messages_result = await telegram_service.client.get_messages(entity, limit=5)
+        
+        messages = []
+        for msg in messages_result:
+            if msg:
+                messages.append({
+                    "id": str(msg.id),
+                    "text": msg.text or "",
+                    "date": msg.date.isoformat(),
+                    "sender_id": str(msg.sender_id) if msg.sender_id else None
+                })
+        
+        return {
+            "status": "success",
+            "method": "get_messages",
+            "count": len(messages),
+            "messages": messages
+        }
+        
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@router.get("/groups/{group_id}/test-permissions")
+async def test_group_permissions(group_id: str):
+    """Проверка прав доступа к группе"""
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем entity
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        # Проверяем тип entity и права
+        entity_info = {
+            "entity_type": type(entity).__name__,
+            "entity_id": str(entity.id),
+            "title": getattr(entity, 'title', 'N/A'),
+            "username": getattr(entity, 'username', 'N/A'),
+        }
+        
+        # Дополнительная информация для каналов
+        if hasattr(entity, 'broadcast'):
+            entity_info["is_broadcast"] = entity.broadcast
+        if hasattr(entity, 'megagroup'):
+            entity_info["is_megagroup"] = entity.megagroup
+        if hasattr(entity, 'restricted'):
+            entity_info["is_restricted"] = entity.restricted
+        if hasattr(entity, 'participants_count'):
+            entity_info["participants_count"] = entity.participants_count
+            
+        # Пробуем получить наши права в группе/канале
+        try:
+            me = await telegram_service.client.get_me()
+            my_participant = await telegram_service.client.get_permissions(entity, me.id)
+            
+            permissions = {
+                "is_admin": my_participant.is_admin if hasattr(my_participant, 'is_admin') else False,
+                "can_view_messages": my_participant.view_messages if hasattr(my_participant, 'view_messages') else None,
+                "can_send_messages": my_participant.send_messages if hasattr(my_participant, 'send_messages') else None,
+                "is_banned": my_participant.is_banned if hasattr(my_participant, 'is_banned') else False,
+            }
+        except Exception as perm_error:
+            permissions = {"error": str(perm_error)}
+        
+        return {
+            "status": "success",
+            "entity_info": entity_info,
+            "my_permissions": permissions
+        }
+        
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+@router.get("/groups/{group_id}/test-combined-approach")
+async def test_combined_approach(group_id: str):
+    """Комбинированный подход с fallback методами"""
+    try:
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        telegram_group_id = group.data[0]["group_id"]
+        
+        # Получаем entity
+        entity = await telegram_service.get_entity(telegram_group_id)
+        
+        results = {
+            "entity_acquired": True,
+            "methods_tested": {}
+        }
+        
+        # Метод 1: iter_messages с коротким таймаутом
+        try:
+            messages = []
+            async def quick_iter():
+                count = 0
+                async for message in telegram_service.client.iter_messages(entity, limit=2):
+                    messages.append({
+                        "id": str(message.id),
+                        "text": message.text[:50] if message.text else ""
+                    })
+                    count += 1
+                    if count >= 2:
+                        break
+                return messages
+            
+            result1 = await asyncio.wait_for(quick_iter(), timeout=5.0)
+            results["methods_tested"]["iter_messages"] = {
+                "status": "success",
+                "count": len(result1),
+                "timeout": "5s"
+            }
+        except asyncio.TimeoutError:
+            results["methods_tested"]["iter_messages"] = {
+                "status": "timeout",
+                "timeout": "5s"
+            }
+        except Exception as e:
+            results["methods_tested"]["iter_messages"] = {
+                "status": "error",
+                "error": str(e)
+            }
+        
+        # Метод 2: get_messages
+        try:
+            messages_result = await telegram_service.client.get_messages(entity, limit=2)
+            results["methods_tested"]["get_messages"] = {
+                "status": "success",
+                "count": len([m for m in messages_result if m]),
+                "method": "direct_get"
+            }
+        except Exception as e:
+            results["methods_tested"]["get_messages"] = {
+                "status": "error",
+                "error": str(e)
+            }
+        
+        # Метод 3: get_messages с конкретными ID (если знаем последние)
+        try:
+            # Получаем последние сообщения по ID
+            messages_by_ids = await telegram_service.client.get_messages(entity, ids=None, limit=1)
+            if messages_by_ids and len(messages_by_ids) > 0:
+                latest_msg = messages_by_ids[0]
+                if latest_msg:
+                    results["methods_tested"]["get_messages_by_ids"] = {
+                        "status": "success",
+                        "latest_message_id": str(latest_msg.id),
+                        "method": "by_ids"
+                    }
+                else:
+                    results["methods_tested"]["get_messages_by_ids"] = {
+                        "status": "empty",
+                        "method": "by_ids"
+                    }
+            else:
+                results["methods_tested"]["get_messages_by_ids"] = {
+                    "status": "no_messages",
+                    "method": "by_ids"
+                }
+        except Exception as e:
+            results["methods_tested"]["get_messages_by_ids"] = {
+                "status": "error",
+                "error": str(e)
+            }
+        
+        # Определяем рекомендуемый метод
+        if results["methods_tested"].get("get_messages", {}).get("status") == "success":
+            results["recommended_method"] = "get_messages"
+        elif results["methods_tested"].get("iter_messages", {}).get("status") == "success":
+            results["recommended_method"] = "iter_messages"
+        else:
+            results["recommended_method"] = "none_working"
+        
+        return {
+            "status": "success",
+            "telegram_group_id": telegram_group_id,
+            "results": results
+        }
+        
     except Exception as e:
         return {"status": "error", "error": str(e)}
