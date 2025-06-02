@@ -267,99 +267,82 @@ async def collect_group_data(group_id: str, limit: int = Query(100, ge=1, le=100
 @router.post("/groups/{group_id}/analyze")
 async def analyze_group(
     group_id: str,
-    analysis_params: dict = Body(...),  # Получаем параметры из тела запроса
+    analysis_params: dict = Body(...),
     days_back: int = Query(7, ge=1, le=30)
 ):
-    """Запустить анализ группы с указанными параметрами"""
+    """Запустить РЕАЛЬНЫЙ анализ группы через OpenAI"""
     try:
-        logger.info(f"Starting analysis for group {group_id}")
+        logger.info(f"Starting OpenAI analysis for group {group_id}")
         
-        # Извлекаем параметры из тела запроса
+        # Извлекаем параметры
         prompt = analysis_params.get("prompt", "")
         moderators = analysis_params.get("moderators", [])
         days_back_param = analysis_params.get("days_back", days_back)
         
-        # Логируем полученные параметры
-        logger.debug(f"Analysis parameters: prompt='{prompt[:30]}...', moderators={moderators}, days_back={days_back_param}")
+        if not prompt.strip():
+            raise HTTPException(status_code=400, detail="Prompt is required for analysis")
         
-        # Проверяем, существует ли группа
-        group_check = supabase_client.table('telegram_groups').select("id, name, group_id, settings").eq('id', group_id).execute()
+        # Проверяем группу
+        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
         
-        if not group_check.data or len(group_check.data) == 0:
-            logger.warning(f"Group with ID {group_id} not found")
+        if not group_check.data:
             raise HTTPException(status_code=404, detail="Group not found")
         
-        group_name = group_check.data[0].get("name", "Unknown")
-        telegram_group_id = group_check.data[0].get("group_id")
-        logger.debug(f"Group found: {group_name}")
+        group_data = group_check.data[0]
+        group_name = group_data.get("name", "Unknown")
+        telegram_group_id = group_data.get("group_id")
         
-        # Пока используем мок-результаты анализа
-        # В дальнейшем здесь будет интеграция с OpenAI API
-        logger.debug("Generating mock analysis results")
-        mock_result = {
+        # Получаем реальные сообщения из группы
+        messages = await telegram_service.get_group_messages(
+            telegram_group_id, 
+            limit=200,  # Увеличиваем лимит для лучшего анализа
+            get_users=True
+        )
+        
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages found in group for analysis")
+        
+        logger.info(f"Analyzing {len(messages)} messages with OpenAI")
+        
+        # РЕАЛЬНЫЙ анализ через OpenAI
+        analysis_result = await openai_service.analyze_moderator_performance(
+            messages=messages,
+            prompt=prompt,
+            moderators=moderators,
+            group_name=group_name
+        )
+        
+        # Добавляем метаданные
+        analysis_result.update({
             "timestamp": datetime.now().isoformat(),
-            "summary": {
-                "sentiment_score": 78,
-                "response_time_avg": 4.2,
-                "resolved_issues": 35,
-                "satisfaction_score": 88,
-                "engagement_rate": 76,
-            },
-            "key_topics": ["support", "feedback", "technical issues", "updates"],
-            "moderator_metrics": {
-                "response_time": {
-                    "avg": 4.2,
-                    "min": 0.5,
-                    "max": 12.3
-                },
-                "sentiment": {
-                    "positive": 65,
-                    "neutral": 25,
-                    "negative": 10
-                },
-                "performance": {
-                    "effectiveness": 82,
-                    "helpfulness": 85,
-                    "clarity": 78
-                }
-            },
-            "recommendations": [
-                "Улучшить время ответа в периоды высокой активности",
-                "Обратить внимание на более детальные ответы по техническим вопросам",
-                "Продолжать поддерживать позитивный тон в общении"
-            ],
-            # Добавляем переданные параметры в результат для отображения в UI
             "prompt": prompt,
-            "analyzed_moderators": moderators
-        }
+            "analyzed_moderators": moderators,
+            "messages_analyzed": len(messages),
+            "group_name": group_name
+        })
         
-        # Сохраняем результаты с новыми полями
+        # Сохраняем результаты в базу
         analysis_report = {
             "group_id": group_id,
             "type": "telegram_analysis",
-            "results": mock_result,
+            "results": analysis_result,
             "prompt": prompt,
             "analyzed_moderators": moderators
         }
         
-        # Логируем данные перед вставкой
-        logger.debug("Inserting analysis results into database")
         try:
-            result = supabase_client.table('analysis_reports').insert(analysis_report).execute()
-            logger.debug("Successfully inserted analysis results")
+            supabase_client.table('analysis_reports').insert(analysis_report).execute()
+            logger.info("Analysis results saved to database")
         except Exception as db_error:
-            logger.error(f"Database error: {str(db_error)}")
-            logger.error(traceback.format_exc())
-            # Продолжаем выполнение, чтобы вернуть данные пользователю, даже если сохранение не удалось
-            logger.warning("Returning analysis results without saving to database")
-            return {"status": "partial_success", "message": "Analysis completed but results not saved", "result": mock_result}
+            logger.warning(f"Failed to save to database: {db_error}")
         
-        logger.info(f"Analysis for group {group_id} completed successfully")
-        return {"status": "success", "result": mock_result}
+        logger.info(f"OpenAI analysis completed for group {group_id}")
+        return {"status": "success", "result": analysis_result}
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error during analysis: {str(e)}")
+        logger.error(f"Analysis failed: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 

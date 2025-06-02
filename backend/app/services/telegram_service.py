@@ -2,6 +2,7 @@
 from telethon import TelegramClient, types
 from telethon.sessions import StringSession
 from telethon.tl.types import Message, User, Channel, Chat
+from ...services.openai_service import OpenAIService
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 import asyncio
@@ -11,6 +12,8 @@ from ..core.config import settings
 from ..core.database import supabase_client
 
 logger = logging.getLogger(__name__)
+
+openai_service = OpenAIService()
 
 class TelegramService:
     _instance = None
