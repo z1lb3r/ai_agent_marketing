@@ -365,46 +365,46 @@ class OpenAIService:
             logger.error(f"Error parsing community analysis response: {e}")
             return self._get_community_fallback_result()
 
-        def _validate_community_structure(self, result: Dict[str, Any]) -> bool:
-            """Валидация структуры результата анализа сообщества"""
-            try:
-                # Проверяем основные ключи
-                required_keys = ['sentiment_summary', 'main_issues', 'service_quality', 'improvement_suggestions', 'key_topics', 'urgent_issues']
-                
-                if not all(key in result for key in required_keys):
-                    logger.warning(f"Missing required keys in community analysis result. Expected: {required_keys}, Got: {list(result.keys())}")
-                    return False
-                
-                # Проверяем структуру sentiment_summary
-                sentiment_summary = result.get('sentiment_summary', {})
-                sentiment_required = ['overall_mood', 'satisfaction_score', 'complaint_level']
-                if not all(key in sentiment_summary for key in sentiment_required):
-                    logger.warning(f"Invalid sentiment_summary structure. Expected: {sentiment_required}, Got: {list(sentiment_summary.keys())}")
-                    return False
-                
-                # Проверяем что main_issues это список
-                if not isinstance(result.get('main_issues', []), list):
-                    logger.warning("main_issues should be a list")
-                    return False
-                
-                # Проверяем структуру service_quality
-                service_quality = result.get('service_quality', {})
-                if not isinstance(service_quality, dict):
-                    logger.warning("service_quality should be a dictionary")
-                    return False
-                
-                # Проверяем что остальные поля это списки
-                list_fields = ['improvement_suggestions', 'key_topics', 'urgent_issues']
-                for field in list_fields:
-                    if not isinstance(result.get(field, []), list):
-                        logger.warning(f"{field} should be a list")
-                        return False
-                
-                logger.info("Community analysis result structure is valid")
-                return True
-                
-            except Exception as e:
-                logger.error(f"Error validating community analysis structure: {e}")
+    def _validate_community_structure(self, result: Dict[str, Any]) -> bool:
+        """Валидация структуры результата анализа сообщества"""
+        try:
+            # Проверяем основные ключи
+            required_keys = ['sentiment_summary', 'main_issues', 'service_quality', 'improvement_suggestions', 'key_topics', 'urgent_issues']
+            
+            if not all(key in result for key in required_keys):
+                logger.warning(f"Missing required keys in community analysis result. Expected: {required_keys}, Got: {list(result.keys())}")
                 return False
+            
+            # Проверяем структуру sentiment_summary
+            sentiment_summary = result.get('sentiment_summary', {})
+            sentiment_required = ['overall_mood', 'satisfaction_score', 'complaint_level']
+            if not all(key in sentiment_summary for key in sentiment_required):
+                logger.warning(f"Invalid sentiment_summary structure. Expected: {sentiment_required}, Got: {list(sentiment_summary.keys())}")
+                return False
+            
+            # Проверяем что main_issues это список
+            if not isinstance(result.get('main_issues', []), list):
+                logger.warning("main_issues should be a list")
+                return False
+            
+            # Проверяем структуру service_quality
+            service_quality = result.get('service_quality', {})
+            if not isinstance(service_quality, dict):
+                logger.warning("service_quality should be a dictionary")
+                return False
+            
+            # Проверяем что остальные поля это списки
+            list_fields = ['improvement_suggestions', 'key_topics', 'urgent_issues']
+            for field in list_fields:
+                if not isinstance(result.get(field, []), list):
+                    logger.warning(f"{field} should be a list")
+                    return False
+            
+            logger.info("Community analysis result structure is valid")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating community analysis structure: {e}")
+            return False
 
 
