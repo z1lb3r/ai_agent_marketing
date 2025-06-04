@@ -5,6 +5,7 @@ from ...services.telegram_service import TelegramService
 from ...core.database import supabase_client
 from ...core.config import settings
 from datetime import datetime, timedelta
+from ...services.openai_service import OpenAIService
 import logging
 import traceback
 import uuid
@@ -17,6 +18,7 @@ logger.setLevel(logging.DEBUG)
 
 # Telegram service initialization
 telegram_service = TelegramService()
+openai_service = OpenAIService()
 
 
 @router.get("/groups")
@@ -65,9 +67,10 @@ async def get_group(group_id: str):
 
 @router.get("/groups/{group_id}/messages")
 async def get_group_messages(group_id: str, limit: int = Query(100, ge=1, le=1000)):
-    """Получить сообщения из группы"""
+    """Получить сообщения из группы (ВСЕГДА из Telegram API, не из БД)"""
     try:
-        logger.debug(f"Fetching messages for group {group_id} with limit {limit}")
+        logger.debug(f"Fetching FRESH messages for group {group_id} with limit {limit}")
+        
         # Проверяем существование группы
         group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
         
@@ -78,7 +81,46 @@ async def get_group_messages(group_id: str, limit: int = Query(100, ge=1, le=100
         # Получаем телеграм ID группы
         telegram_group_id = group.data[0]["group_id"]
         
-        # Сначала пробуем получить сообщения из базы данных
+        # ВСЕГДА получаем свежие сообщения из Telegram API
+        logger.debug(f"Fetching fresh messages from Telegram API for group {telegram_group_id}")
+        
+        try:
+            messages_data = await telegram_service.get_group_messages(
+                telegram_group_id, 
+                limit=limit, 
+                save_to_db=False  # Не сохраняем в БД для свежих запросов
+            )
+            
+            logger.debug(f"Successfully fetched {len(messages_data)} fresh messages")
+            return messages_data
+            
+        except Exception as e:
+            logger.error(f"Error retrieving messages from group {telegram_group_id}: {e}")
+            logger.error(traceback.format_exc())
+            raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching messages: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Добавить новый эндпоинт для получения сообщений из БД (если нужно):
+@router.get("/groups/{group_id}/messages/cached")
+async def get_cached_group_messages(group_id: str, limit: int = Query(100, ge=1, le=1000)):
+    """Получить сообщения из базы данных (кэшированные)"""
+    try:
+        logger.debug(f"Fetching cached messages for group {group_id} with limit {limit}")
+        
+        # Проверяем существование группы
+        group = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group.data:
+            logger.warning(f"Group with ID {group_id} not found")
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Получаем сообщения из базы данных
         messages = supabase_client.table('telegram_messages')\
             .select("*")\
             .eq('group_id', group_id)\
@@ -86,23 +128,13 @@ async def get_group_messages(group_id: str, limit: int = Query(100, ge=1, le=100
             .limit(limit)\
             .execute()
         
-        # Если в базе нет сообщений, получаем их из Telegram API
-        if not messages.data:
-            logger.debug(f"No messages found in database, fetching from Telegram API")
-            try:
-                messages_data = await telegram_service.get_group_messages(telegram_group_id, limit=limit, save_to_db=True)
-                return messages_data
-            except Exception as e:
-                logger.error(f"Error retrieving messages from group {telegram_group_id}: {e}")
-                logger.error(traceback.format_exc())
-                raise HTTPException(status_code=500, detail=f"Error fetching messages: {str(e)}")
-        
-        logger.debug(f"Fetched {len(messages.data)} messages from database")
+        logger.debug(f"Fetched {len(messages.data)} cached messages from database")
         return messages.data
+        
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching messages: {str(e)}")
+        logger.error(f"Error fetching cached messages: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -186,10 +218,21 @@ async def add_group(
             logger.warning(f"Group {group_link} not found or is not accessible")
             raise HTTPException(status_code=404, detail="Group not found or is not accessible")
         
+        # ИСПРАВЛЕНИЕ: Правильно формируем group_id для супергрупп
+        entity_id = int(group_info['id'])
+        if entity_id > 0:
+            # Для супергрупп и каналов добавляем префикс -100
+            group_id = f"-100{entity_id}"
+        else:
+            # ID уже в правильном формате (отрицательный)
+            group_id = str(entity_id)
+        
+        logger.debug(f"Formed group_id: {group_id} from entity_id: {entity_id}")
+        
         # Проверяем, существует ли группа в базе
         existing_group = supabase_client.table('telegram_groups')\
             .select("id")\
-            .eq('group_id', str(group_info['id']))\
+            .eq('group_id', group_id)\
             .execute()
         
         if existing_group.data:
@@ -211,9 +254,9 @@ async def add_group(
         settings['moderators'] = moderator_list
         
         new_group = {
-            'group_id': str(group_info['id']),
+            'group_id': group_id,  # ИСПРАВЛЕННЫЙ group_id
             'name': group_info['title'],
-            'link': group_link,  # Сохраняем оригинальную ссылку
+            'link': group_link,
             'settings': settings
         }
         
@@ -223,8 +266,9 @@ async def add_group(
             logger.error(f"Failed to add group {group_link} to database")
             raise HTTPException(status_code=500, detail="Failed to add group to database")
         
-        logger.info(f"Successfully added group {group_link} to database")
+        logger.info(f"Successfully added group {group_link} with correct group_id: {group_id}")
         return {"status": "success", "group_id": result.data[0]['id']}
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -1228,3 +1272,74 @@ async def test_combined_approach(group_id: str):
         
     except Exception as e:
         return {"status": "error", "error": str(e)}
+    
+
+@router.post("/groups/{group_id}/analyze-community")
+async def analyze_community_sentiment(
+    group_id: str,
+    analysis_params: dict = Body(...),
+):
+    """Анализ настроений жителей и проблем ЖКХ"""
+    try:
+        logger.info(f"Starting community sentiment analysis for group {group_id}")
+        
+        # Извлекаем параметры
+        prompt = analysis_params.get("prompt", "")
+        days_back = analysis_params.get("days_back", 7)
+        
+        # Проверяем группу
+        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group_check.data:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        group_data = group_check.data[0]
+        group_name = group_data.get("name", "Unknown")
+        telegram_group_id = group_data.get("group_id")
+        
+        # Получаем сообщения
+        messages = await telegram_service.get_group_messages(
+            telegram_group_id, 
+            limit=100,
+            get_users=False  # Не нужна информация о пользователях
+        )
+        
+        if not messages:
+            raise HTTPException(status_code=400, detail="No messages found for analysis")
+        
+        # Анализ настроений сообщества
+        analysis_result = await openai_service.analyze_community_sentiment(
+            messages=messages,
+            prompt=prompt,
+            group_name=group_name
+        )
+        
+        # Добавляем метаданные
+        analysis_result.update({
+            "timestamp": datetime.now().isoformat(),
+            "prompt": prompt,
+            "messages_analyzed": len(messages),
+            "group_name": group_name,
+            "analysis_type": "community_sentiment"
+        })
+        
+        # Сохраняем в базу
+        analysis_report = {
+            "group_id": group_id,
+            "type": "community_sentiment",
+            "results": analysis_result,
+            "prompt": prompt
+        }
+        
+        try:
+            supabase_client.table('analysis_reports').insert(analysis_report).execute()
+        except Exception as db_error:
+            logger.warning(f"Failed to save to database: {db_error}")
+        
+        return {"status": "success", "result": analysis_result}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Community analysis failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
