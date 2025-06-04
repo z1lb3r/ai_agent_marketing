@@ -1,4 +1,5 @@
-// frontend/src/components/Dashboard/DashboardCard.tsx
+// frontend/src/components/Dashboard/DashboardCard.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+
 import React from 'react';
 
 interface DashboardCardProps {
@@ -42,7 +43,7 @@ export const DashboardCard: React.FC<DashboardCardProps> = ({
           }`}>
             {trend.isPositive ? '↑' : '↓'} {Math.abs(trend.value)}%
           </span>
-          <span className="text-sm text-gray-500 ml-2">vs last week</span>
+          <span className="text-sm text-gray-500 ml-2">к прошлой неделе</span>
         </div>
       )}
     </div>

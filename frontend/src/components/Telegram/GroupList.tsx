@@ -1,4 +1,5 @@
-// frontend/src/components/Telegram/GroupList.tsx
+// frontend/src/components/Telegram/GroupList.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { MessageSquare, Users, BarChart } from 'lucide-react';
@@ -7,14 +8,14 @@ import { useTelegramGroups } from '../../hooks/useTelegramData';
 export const GroupList: React.FC = () => {
   const { data: groups, isLoading, error } = useTelegramGroups();
 
-  if (isLoading) return <div>Loading groups...</div>;
-  if (error) return <div>Error loading groups</div>;
+  if (isLoading) return <div>Загрузка групп...</div>;
+  if (error) return <div>Ошибка загрузки групп</div>;
 
   return (
     <div className="bg-white shadow rounded-lg">
       <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
         <h3 className="text-lg font-medium leading-6 text-gray-900">
-          Telegram Groups
+          Telegram Группы
         </h3>
       </div>
       <ul className="divide-y divide-gray-200">
@@ -43,7 +44,7 @@ export const GroupList: React.FC = () => {
                   <div className="sm:flex">
                     <p className="flex items-center text-sm text-gray-500">
                       <BarChart className="flex-shrink-0 mr-1.5 h-4 w-4 text-gray-400" />
-                      Last analyzed: {new Date(group.created_at).toLocaleDateString()}
+                      Последний анализ: {new Date(group.created_at).toLocaleDateString('ru-RU')}
                     </p>
                   </div>
                 </div>

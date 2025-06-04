@@ -1,4 +1,5 @@
-// frontend/src/components/Telegram/ModeratorList.tsx
+// frontend/src/components/Telegram/ModeratorList.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+
 import React from 'react';
 import { useGroupModerators } from '../../hooks/useTelegramData';
 import { Users } from 'lucide-react';
@@ -12,7 +13,7 @@ export const ModeratorList: React.FC<ModeratorListProps> = ({ groupId }) => {
 
   if (isLoading) return (
     <div className="bg-white shadow rounded-lg p-6">
-      <h3 className="text-lg font-medium mb-4">Group Moderators</h3>
+      <h3 className="text-lg font-medium mb-4">Модераторы Группы</h3>
       <div className="animate-pulse">
         <div className="h-10 bg-gray-200 rounded mb-4"></div>
         <div className="h-10 bg-gray-200 rounded mb-4"></div>
@@ -22,8 +23,8 @@ export const ModeratorList: React.FC<ModeratorListProps> = ({ groupId }) => {
 
   if (error) return (
     <div className="bg-white shadow rounded-lg p-6">
-      <h3 className="text-lg font-medium mb-4">Group Moderators</h3>
-      <div className="text-red-500">Failed to load moderators. Please try again.</div>
+      <h3 className="text-lg font-medium mb-4">Модераторы Группы</h3>
+      <div className="text-red-500">Не удалось загрузить модераторов. Попробуйте снова.</div>
     </div>
   );
   
@@ -31,7 +32,7 @@ export const ModeratorList: React.FC<ModeratorListProps> = ({ groupId }) => {
     <div className="bg-white shadow rounded-lg p-6">
       <div className="flex items-center mb-4">
         <Users className="h-5 w-5 text-indigo-600 mr-2" />
-        <h3 className="text-lg font-medium">Group Moderators</h3>
+        <h3 className="text-lg font-medium">Модераторы Группы</h3>
       </div>
       
       <div className="space-y-3">
@@ -56,7 +57,7 @@ export const ModeratorList: React.FC<ModeratorListProps> = ({ groupId }) => {
         ) : (
           <div className="text-center py-6">
             <Users className="h-12 w-12 text-gray-300 mx-auto mb-2" />
-            <p className="text-gray-500">No moderators available</p>
+            <p className="text-gray-500">Модераторы недоступны</p>
           </div>
         )}
       </div>

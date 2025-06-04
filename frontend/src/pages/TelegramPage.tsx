@@ -1,4 +1,5 @@
-// frontend/src/pages/TelegramPage.tsx
+// frontend/src/pages/TelegramPage.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MessageSquare, BarChart2, Users, Clock, AlertCircle, Activity, TrendingUp } from 'lucide-react';
@@ -40,11 +41,11 @@ export const TelegramPage: React.FC = () => {
   const handleAnalyze = async () => {
     if (!groupId) return;
     if (!prompt.trim()) {
-      alert("Please enter a prompt for analysis");
+      alert("Пожалуйста, введите критерии для анализа");
       return;
     }
     
-    console.log("Starting analysis for group:", groupId);
+    console.log("Запуск анализа для группы:", groupId);
     setAnalyzing(true);
     
     try {
@@ -55,7 +56,7 @@ export const TelegramPage: React.FC = () => {
         days_back: daysBack
       });
       
-      console.log("Analysis API response:", response.data);
+      console.log("Ответ API анализа:", response.data);
       
       // Сохраняем результат
       setAnalysisResults(response.data.result);
@@ -67,7 +68,7 @@ export const TelegramPage: React.FC = () => {
       // Обновляем кэш запросов
       queryClient.invalidateQueries({ queryKey: ['telegram-groups'] });
     } catch (error) {
-      console.error('Error analyzing group:', error);
+      console.error('Ошибка анализа группы:', error);
     } finally {
       setAnalyzing(false);
     }
@@ -77,7 +78,7 @@ export const TelegramPage: React.FC = () => {
   const handleAddGroup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!groupLink.trim()) {
-      setAddGroupError("Please enter a group link or username");
+      setAddGroupError("Пожалуйста, введите ссылку или username группы");
       return;
     }
     
@@ -108,11 +109,11 @@ export const TelegramPage: React.FC = () => {
         // Обновляем список групп
         queryClient.invalidateQueries({ queryKey: ['telegram-groups'] });
       } else {
-        setAddGroupError("Failed to add group. Please try again.");
+        setAddGroupError("Не удалось добавить группу. Попробуйте снова.");
       }
     } catch (error) {
-      console.error('Error adding group:', error);
-      setAddGroupError("Error adding group. Please check the link and try again.");
+      console.error('Ошибка добавления группы:', error);
+      setAddGroupError("Ошибка добавления группы. Проверьте ссылку и попробуйте снова.");
     } finally {
       setAddingGroup(false);
     }
@@ -125,20 +126,20 @@ export const TelegramPage: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center mb-8">
             <h1 className="text-2xl font-semibold text-gray-900">
-              Telegram Groups
+              Telegram Группы
             </h1>
             <button
               onClick={() => setShowAddGroupForm(!showAddGroupForm)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
             >
-              {showAddGroupForm ? 'Cancel' : 'Add Group'}
+              {showAddGroupForm ? 'Отмена' : 'Добавить Группу'}
             </button>
           </div>
           
           {/* Форма добавления группы */}
           {showAddGroupForm && (
             <div className="bg-white shadow rounded-lg p-6 mb-8">
-              <h3 className="text-lg font-medium mb-4">Add Telegram Group</h3>
+              <h3 className="text-lg font-medium mb-4">Добавить Telegram Группу</h3>
               
               {addGroupError && (
                 <div className="bg-red-50 text-red-700 p-3 rounded mb-4">
@@ -149,24 +150,24 @@ export const TelegramPage: React.FC = () => {
               <form onSubmit={handleAddGroup}>
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Group Link or Username
+                    Ссылка на группу или Username
                   </label>
                   <input
                     type="text"
                     value={groupLink}
                     onChange={(e) => setGroupLink(e.target.value)}
-                    placeholder="t.me/groupname or @groupname"
+                    placeholder="t.me/groupname или @groupname"
                     className="w-full p-2 border border-gray-300 rounded"
                     required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Enter the Telegram group link or username
+                    Введите ссылку на Telegram группу или username
                   </p>
                 </div>
                 
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Moderators
+                    Модераторы
                   </label>
                   <input
                     type="text"
@@ -176,7 +177,7 @@ export const TelegramPage: React.FC = () => {
                     className="w-full p-2 border border-gray-300 rounded"
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Enter moderator usernames separated by commas
+                    Введите username модераторов через запятую
                   </p>
                 </div>
                 
@@ -189,7 +190,7 @@ export const TelegramPage: React.FC = () => {
                       : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                   }`}
                 >
-                  {addingGroup ? 'Adding...' : 'Add Group'}
+                  {addingGroup ? 'Добавление...' : 'Добавить Группу'}
                 </button>
               </form>
             </div>
@@ -198,10 +199,10 @@ export const TelegramPage: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <GroupList />
             <div className="bg-white shadow rounded-lg p-6">
-              <h3 className="text-lg font-medium mb-4">How to Use</h3>
+              <h3 className="text-lg font-medium mb-4">Как использовать</h3>
               <p className="text-gray-600 mb-4">
-                This module helps you analyze Telegram groups to evaluate moderator performance, 
-                sentiment trends, and community engagement.
+                Этот модуль помогает анализировать Telegram группы для оценки работы модераторов, 
+                анализа настроений и вовлеченности сообщества.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
@@ -209,7 +210,7 @@ export const TelegramPage: React.FC = () => {
                     <span className="text-indigo-700 font-bold">1</span>
                   </div>
                   <p className="text-gray-600">
-                    Add a Telegram group by providing the link or username
+                    Добавьте Telegram группу, указав ссылку или username
                   </p>
                 </div>
                 <div className="flex items-start">
@@ -217,7 +218,7 @@ export const TelegramPage: React.FC = () => {
                     <span className="text-indigo-700 font-bold">2</span>
                   </div>
                   <p className="text-gray-600">
-                    Select a group and enter your analysis criteria (prompt)
+                    Выберите группу и введите критерии анализа (промпт)
                   </p>
                 </div>
                 <div className="flex items-start">
@@ -225,7 +226,7 @@ export const TelegramPage: React.FC = () => {
                     <span className="text-indigo-700 font-bold">3</span>
                   </div>
                   <p className="text-gray-600">
-                    Review the analysis results and recommendations
+                    Изучите результаты анализа и рекомендации
                   </p>
                 </div>
               </div>
@@ -264,15 +265,15 @@ export const TelegramPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 py-8">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center bg-white shadow rounded-lg p-8">
-            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Group Not Found</h2>
+            <h2 className="text-2xl font-semibold text-gray-900 mb-4">Группа не найдена</h2>
             <p className="text-lg text-gray-600 mb-6">
-              The Telegram group you're looking for couldn't be found. It may have been removed or you don't have access.
+              Telegram группа, которую вы ищете, не найдена. Возможно, она была удалена или у вас нет доступа.
             </p>
             <Link 
               to="/telegram" 
               className="inline-block px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
             >
-              Back to Groups
+              Вернуться к группам
             </Link>
           </div>
         </div>
@@ -295,10 +296,10 @@ export const TelegramPage: React.FC = () => {
       { date: '2025-04-07', value: 3.8 },
     ],
     moderatorStats: {
-      avgResponse: '4.5 min',
+      avgResponse: '4.5 мин',
       resolved: 43,
       satisfaction: '92%',
-      activeTime: '8.5 hours'
+      activeTime: '8.5 часов'
     }
   };
 
@@ -315,7 +316,7 @@ export const TelegramPage: React.FC = () => {
               to="/telegram" 
               className="text-indigo-600 hover:text-indigo-800"
             >
-              Back to all groups
+              Ко всем группам
             </Link>
             
             {/* Кнопка для запуска анализа */}
@@ -323,7 +324,7 @@ export const TelegramPage: React.FC = () => {
               onClick={() => setShowAnalysisForm(!showAnalysisForm)}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
             >
-              {showAnalysisForm ? 'Cancel' : 'New Analysis'}
+              {showAnalysisForm ? 'Отмена' : 'Новый Анализ'}
             </button>
           </div>
         </div>
@@ -331,29 +332,29 @@ export const TelegramPage: React.FC = () => {
         {/* Форма ввода промпта для анализа */}
         {showAnalysisForm && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-medium mb-4">Run Analysis</h3>
+            <h3 className="text-lg font-medium mb-4">Запустить Анализ</h3>
             <form onSubmit={(e) => { e.preventDefault(); handleAnalyze(); }}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Analysis Prompt
+                  Критерии Анализа
                 </label>
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Describe the criteria for evaluating moderator performance..."
+                  placeholder="Опишите критерии для оценки работы модераторов..."
                   className="w-full p-3 border border-gray-300 rounded-md"
                   rows={4}
                   required
                 ></textarea>
                 <p className="text-xs text-gray-500 mt-1">
-                  Define how moderators should behave and what criteria to use for evaluation
+                  Определите, как должны вести себя модераторы и какие критерии использовать для оценки
                 </p>
               </div>
               
               {groupModerators.length > 0 && (
                 <div className="mb-4">
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Moderators to Analyze
+                    Модераторы для Анализа
                   </label>
                   <div className="space-y-2">
                     {groupModerators.map((mod) => (
@@ -379,7 +380,7 @@ export const TelegramPage: React.FC = () => {
               
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Days to Analyze
+                  Дней для Анализа
                 </label>
                 <input
                   type="number"
@@ -390,7 +391,7 @@ export const TelegramPage: React.FC = () => {
                   className="w-full p-2 border border-gray-300 rounded-md"
                 />
                 <p className="text-xs text-gray-500 mt-1">
-                  Number of days to look back for analysis (1-30)
+                  Количество дней назад для анализа (1-30)
                 </p>
               </div>
               
@@ -403,7 +404,7 @@ export const TelegramPage: React.FC = () => {
                     : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                 }`}
               >
-                {analyzing ? 'Analyzing...' : 'Run Analysis'}
+                {analyzing ? 'Анализ...' : 'Запустить Анализ'}
               </button>
             </form>
           </div>
@@ -411,22 +412,22 @@ export const TelegramPage: React.FC = () => {
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           <DashboardCard
-            title="Members"
+            title="Участников"
             value={group.settings?.members_count || 0}
             icon={<Users className="h-6 w-6 text-blue-600" />}
           />
           <DashboardCard
-            title="Avg Response Time"
-            value={analysisResults?.summary?.response_time_avg ? `${analysisResults.summary.response_time_avg} min` : mockData.moderatorStats.avgResponse}
+            title="Ср. Время Ответа"
+            value={analysisResults?.summary?.response_time_avg ? `${analysisResults.summary.response_time_avg} мин` : mockData.moderatorStats.avgResponse}
             icon={<Clock className="h-6 w-6 text-yellow-600" />}
           />
           <DashboardCard
-            title="Resolved Issues"
+            title="Решено Вопросов"
             value={analysisResults?.summary?.resolved_issues || mockData.moderatorStats.resolved}
             icon={<BarChart2 className="h-6 w-6 text-green-600" />}
           />
           <DashboardCard
-            title="Satisfaction"
+            title="Удовлетворенность"
             value={analysisResults?.summary?.satisfaction_score ? `${analysisResults.summary.satisfaction_score}%` : mockData.moderatorStats.satisfaction}
             icon={<MessageSquare className="h-6 w-6 text-purple-600" />}
           />
@@ -437,7 +438,7 @@ export const TelegramPage: React.FC = () => {
             data={mockData.responseTime}
             dataKey="value"
             xAxisKey="date"
-            title="Response Time Trend (minutes)"
+            title="Тренд Времени Ответа (минуты)"
             color="#3b82f6"
           />
           
@@ -447,55 +448,47 @@ export const TelegramPage: React.FC = () => {
             isAnalyzing={analyzing}
             onAnalyze={() => setShowAnalysisForm(true)}
           />
-          
-          {/* Кнопка отладки - будет видна для отладки */}
-          <button 
-            onClick={() => console.log('Current analysisResults:', analysisResults)} 
-            className="px-3 py-1 bg-gray-200 text-gray-700 rounded text-sm mt-2"
-          >
-            Debug: Log Results Data
-          </button>
         </div>
         
         {/* Детализированные результаты анализа */}
         {analysisResults && showAnalysisDetails && (
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Analysis Results</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Результаты Анализа</h2>
               <button 
                 onClick={() => setShowAnalysisDetails(!showAnalysisDetails)}
                 className="text-indigo-600 hover:text-indigo-800"
               >
-                {showAnalysisDetails ? 'Hide Details' : 'Show Details'}
+                {showAnalysisDetails ? 'Скрыть Детали' : 'Показать Детали'}
               </button>
             </div>
             
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               {/* Сентимент */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Sentiment Analysis</h3>
+                <h3 className="text-lg font-medium mb-4">Анализ Настроений</h3>
                 <div className="grid grid-cols-3 gap-4 mb-6">
                   <div className="bg-green-50 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-500">Positive</p>
+                    <p className="text-sm text-gray-500">Позитивные</p>
                     <p className="text-2xl font-semibold text-green-600">
                       {analysisResults.moderator_metrics?.sentiment?.positive || 0}%
                     </p>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-500">Neutral</p>
+                    <p className="text-sm text-gray-500">Нейтральные</p>
                     <p className="text-2xl font-semibold text-gray-600">
                       {analysisResults.moderator_metrics?.sentiment?.neutral || 0}%
                     </p>
                   </div>
                   <div className="bg-red-50 p-4 rounded-lg text-center">
-                    <p className="text-sm text-gray-500">Negative</p>
+                    <p className="text-sm text-gray-500">Негативные</p>
                     <p className="text-2xl font-semibold text-red-600">
                       {analysisResults.moderator_metrics?.sentiment?.negative || 0}%
                     </p>
                   </div>
                 </div>
                 <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-sm text-gray-700 font-medium mb-2">Overall Sentiment Score</p>
+                  <p className="text-sm text-gray-700 font-medium mb-2">Общий Балл Настроений</p>
                   <div className="w-full bg-gray-200 rounded-full h-4">
                     <div
                       className="bg-blue-600 h-4 rounded-full"
@@ -510,11 +503,11 @@ export const TelegramPage: React.FC = () => {
 
               {/* Модераторы */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Moderator Performance</h3>
+                <h3 className="text-lg font-medium mb-4">Эффективность Модераторов</h3>
                 <div className="space-y-4">
                   <div>
                     <div className="flex justify-between mb-1">
-                      <p className="text-sm text-gray-600">Effectiveness</p>
+                      <p className="text-sm text-gray-600">Эффективность</p>
                       <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.effectiveness || 0}%</p>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -526,7 +519,7 @@ export const TelegramPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
-                      <p className="text-sm text-gray-600">Helpfulness</p>
+                      <p className="text-sm text-gray-600">Полезность</p>
                       <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.helpfulness || 0}%</p>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -538,7 +531,7 @@ export const TelegramPage: React.FC = () => {
                   </div>
                   <div>
                     <div className="flex justify-between mb-1">
-                      <p className="text-sm text-gray-600">Clarity</p>
+                      <p className="text-sm text-gray-600">Ясность</p>
                       <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.clarity || 0}%</p>
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
@@ -551,24 +544,24 @@ export const TelegramPage: React.FC = () => {
                 </div>
                 
                 <div className="mt-6">
-                  <h4 className="font-medium text-sm text-gray-700 mb-3">Response Time Metrics</h4>
+                  <h4 className="font-medium text-sm text-gray-700 mb-3">Метрики Времени Ответа</h4>
                   <div className="grid grid-cols-3 gap-3">
                     <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Min</p>
+                      <p className="text-xs text-gray-500">Мин</p>
                       <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.min || 0} min
+                        {analysisResults.moderator_metrics?.response_time?.min || 0} мин
                       </p>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Avg</p>
+                      <p className="text-xs text-gray-500">Ср</p>
                       <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.avg || 0} min
+                        {analysisResults.moderator_metrics?.response_time?.avg || 0} мин
                       </p>
                     </div>
                     <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Max</p>
+                      <p className="text-xs text-gray-500">Макс</p>
                       <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.max || 0} min
+                        {analysisResults.moderator_metrics?.response_time?.max || 0} мин
                       </p>
                     </div>
                   </div>
@@ -579,7 +572,7 @@ export const TelegramPage: React.FC = () => {
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               {/* Ключевые темы */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Key Discussion Topics</h3>
+                <h3 className="text-lg font-medium mb-4">Ключевые Темы Обсуждения</h3>
                 {analysisResults.key_topics && analysisResults.key_topics.length > 0 ? (
                   <ul className="space-y-3">
                     {analysisResults.key_topics.map((topic: string, index: number) => (
@@ -592,13 +585,13 @@ export const TelegramPage: React.FC = () => {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-gray-500 text-center py-8">No key topics identified</p>
+                  <p className="text-gray-500 text-center py-8">Ключевые темы не определены</p>
                 )}
               </div>
               
               {/* Рекомендации */}
               <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Improvement Recommendations</h3>
+                <h3 className="text-lg font-medium mb-4">Рекомендации по Улучшению</h3>
                 {analysisResults.recommendations && analysisResults.recommendations.length > 0 ? (
                   <div className="bg-blue-50 p-4 rounded-lg">
                     <ul className="space-y-3">
@@ -611,7 +604,7 @@ export const TelegramPage: React.FC = () => {
                     </ul>
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-center py-8">No recommendations available</p>
+                  <p className="text-gray-500 text-center py-8">Рекомендации недоступны</p>
                 )}
               </div>
             </div>
@@ -619,7 +612,7 @@ export const TelegramPage: React.FC = () => {
             {/* Информация о промпте */}
             {analysisResults.prompt && (
               <div className="bg-white rounded-lg shadow p-6 mb-8">
-                <h3 className="text-lg font-medium mb-4">Analysis Prompt</h3>
+                <h3 className="text-lg font-medium mb-4">Критерии Анализа</h3>
                 <div className="bg-gray-50 p-4 rounded-lg">
                   <p className="text-gray-700">{analysisResults.prompt}</p>
                 </div>

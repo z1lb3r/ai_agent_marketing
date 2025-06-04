@@ -1,4 +1,5 @@
-// frontend/src/components/Telegram/SentimentAnalysis.tsx
+// frontend/src/components/Telegram/SentimentAnalysis.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+
 import React from 'react';
 import { BarChart2, TrendingUp, AlertCircle } from 'lucide-react';
 
@@ -20,7 +21,7 @@ export const SentimentAnalysis: React.FC<SentimentAnalysisProps> = ({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center">
           <BarChart2 className="h-5 w-5 text-purple-600 mr-2" />
-          <h3 className="text-lg font-medium">Sentiment Analysis</h3>
+          <h3 className="text-lg font-medium">Анализ Настроений</h3>
         </div>
         <button
           onClick={onAnalyze}
@@ -31,7 +32,7 @@ export const SentimentAnalysis: React.FC<SentimentAnalysisProps> = ({
               : 'bg-indigo-600 hover:bg-indigo-700 text-white'
           }`}
         >
-          {isAnalyzing ? 'Analyzing...' : 'Run Analysis'}
+          {isAnalyzing ? 'Анализ...' : 'Запустить Анализ'}
         </button>
       </div>
       
@@ -44,7 +45,7 @@ export const SentimentAnalysis: React.FC<SentimentAnalysisProps> = ({
       ) : analysisResults ? (
         <div>
           <div className="mb-6">
-            <h4 className="font-medium text-gray-700 mb-2">Overall Sentiment</h4>
+            <h4 className="font-medium text-gray-700 mb-2">Общие Настроения</h4>
             <div className="bg-gray-100 h-6 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-green-500"
@@ -52,37 +53,37 @@ export const SentimentAnalysis: React.FC<SentimentAnalysisProps> = ({
               ></div>
             </div>
             <div className="flex justify-between text-sm mt-1">
-              <span>Negative</span>
-              <span>Neutral</span>
-              <span>Positive</span>
+              <span>Негативные</span>
+              <span>Нейтральные</span>
+              <span>Позитивные</span>
             </div>
           </div>
           
           <div className="mb-6">
-            <h4 className="font-medium text-gray-700 mb-2">Moderator Performance</h4>
+            <h4 className="font-medium text-gray-700 mb-2">Эффективность Модераторов</h4>
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-gray-50 p-3 rounded">
-                <p className="text-sm text-gray-500">Response Time</p>
-                <p className="text-xl font-semibold">{analysisResults.response_time || 'N/A'}</p>
+                <p className="text-sm text-gray-500">Время Ответа</p>
+                <p className="text-xl font-semibold">{analysisResults.response_time || 'Н/Д'}</p>
               </div>
               <div className="bg-gray-50 p-3 rounded">
-                <p className="text-sm text-gray-500">Resolved Issues</p>
-                <p className="text-xl font-semibold">{analysisResults.resolved_issues || 'N/A'}</p>
+                <p className="text-sm text-gray-500">Решено Вопросов</p>
+                <p className="text-xl font-semibold">{analysisResults.resolved_issues || 'Н/Д'}</p>
               </div>
               <div className="bg-gray-50 p-3 rounded">
-                <p className="text-sm text-gray-500">Satisfaction Score</p>
-                <p className="text-xl font-semibold">{analysisResults.satisfaction_score || 'N/A'}</p>
+                <p className="text-sm text-gray-500">Балл Удовлетворенности</p>
+                <p className="text-xl font-semibold">{analysisResults.satisfaction_score || 'Н/Д'}</p>
               </div>
               <div className="bg-gray-50 p-3 rounded">
-                <p className="text-sm text-gray-500">Engagement Rate</p>
-                <p className="text-xl font-semibold">{analysisResults.engagement_rate || 'N/A'}</p>
+                <p className="text-sm text-gray-500">Уровень Вовлеченности</p>
+                <p className="text-xl font-semibold">{analysisResults.engagement_rate || 'Н/Д'}</p>
               </div>
             </div>
           </div>
           
           {analysisResults.key_topics && (
             <div>
-              <h4 className="font-medium text-gray-700 mb-2">Key Topics</h4>
+              <h4 className="font-medium text-gray-700 mb-2">Ключевые Темы</h4>
               <div className="flex flex-wrap gap-2">
                 {analysisResults.key_topics.map((topic: string, index: number) => (
                   <span 
@@ -99,16 +100,16 @@ export const SentimentAnalysis: React.FC<SentimentAnalysisProps> = ({
       ) : (
         <div className="text-center py-8">
           <TrendingUp className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-          <p className="text-gray-500 mb-2">No analysis data available</p>
+          <p className="text-gray-500 mb-2">Данные анализа недоступны</p>
           <p className="text-sm text-gray-400 mb-6 max-w-md mx-auto">
-            Run the analysis to get insights about moderator performance, sentiment analysis, 
-            and key discussion topics in this group.
+            Запустите анализ, чтобы получить информацию об эффективности модераторов, анализе настроений 
+            и ключевых темах обсуждения в этой группе.
           </p>
           <button
             onClick={onAnalyze}
             className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
           >
-            Start Analysis
+            Начать Анализ
           </button>
         </div>
       )}
