@@ -1,8 +1,8 @@
-// frontend/src/pages/TelegramPage.tsx - РУСИФИЦИРОВАННАЯ ВЕРСИЯ
+// frontend/src/pages/TelegramPage.tsx - ОБНОВЛЕННАЯ ВЕРСИЯ
 
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MessageSquare, BarChart2, Users, Clock, AlertCircle, Activity, TrendingUp } from 'lucide-react';
+import { MessageSquare, BarChart2, Users, Clock, AlertCircle, Activity, TrendingUp, Settings } from 'lucide-react';
 import { useTelegramGroups, useTelegramGroup, useAnalyzeGroup } from '../hooks/useTelegramData';
 import { GroupList } from '../components/Telegram/GroupList';
 import { LineChart } from '../components/Charts/LineChart';
@@ -10,8 +10,13 @@ import { DashboardCard } from '../components/Dashboard/DashboardCard';
 import { MessageList } from '../components/Telegram/MessageList';
 import { ModeratorList } from '../components/Telegram/ModeratorList';
 import { SentimentAnalysis } from '../components/Telegram/SentimentAnalysis';
+import { CommunityAnalysisForm } from '../components/Telegram/CommunityAnalysisForm';
+import { CommunityAnalysisResults } from '../components/Telegram/CommunityAnalysisResults';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
+
+// Типы анализа
+type AnalysisType = 'moderators' | 'community';
 
 export const TelegramPage: React.FC = () => {
   const { groupId } = useParams<{ groupId: string }>();
@@ -20,9 +25,13 @@ export const TelegramPage: React.FC = () => {
   const { data: group, isLoading: isLoadingGroup } = useTelegramGroup(groupId || '');
   const analyzeGroupMutation = useAnalyzeGroup();
   
+  // Состояние для выбора типа анализа
+  const [analysisType, setAnalysisType] = useState<AnalysisType>('moderators');
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
+  const [communityResults, setCommunityResults] = useState<any>(null);
   const [showAnalysisDetails, setShowAnalysisDetails] = useState<boolean>(false);
+  const [showCommunityDetails, setShowCommunityDetails] = useState<boolean>(false);
   
   // Состояние для формы добавления группы
   const [showAddGroupForm, setShowAddGroupForm] = useState<boolean>(false);
@@ -31,47 +40,51 @@ export const TelegramPage: React.FC = () => {
   const [addingGroup, setAddingGroup] = useState<boolean>(false);
   const [addGroupError, setAddGroupError] = useState<string>('');
   
-  // Состояние для формы анализа
+  // Состояние для форм анализа
   const [showAnalysisForm, setShowAnalysisForm] = useState<boolean>(false);
+  const [showCommunityForm, setShowCommunityForm] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>('');
   const [selectedModerators, setSelectedModerators] = useState<string[]>([]);
   const [daysBack, setDaysBack] = useState<number>(7);
 
-  // Обработчик для запуска анализа
-  const handleAnalyze = async () => {
+  // Обработчик для запуска анализа модераторов
+  const handleModeratorAnalysis = async () => {
     if (!groupId) return;
     if (!prompt.trim()) {
       alert("Пожалуйста, введите критерии для анализа");
       return;
     }
     
-    console.log("Запуск анализа для группы:", groupId);
+    console.log("Запуск анализа модераторов для группы:", groupId);
     setAnalyzing(true);
     
     try {
-      // Вызываем новый эндпоинт с параметрами анализа
       const response = await api.post(`/telegram/groups/${groupId}/analyze`, {
         prompt: prompt,
         moderators: selectedModerators,
         days_back: daysBack
       });
       
-      console.log("Ответ API анализа:", response.data);
+      console.log("Ответ API анализа модераторов:", response.data);
       
-      // Сохраняем результат
       setAnalysisResults(response.data.result);
-      
-      // Показываем детали после успешного анализа
       setShowAnalysisDetails(true);
       setShowAnalysisForm(false);
       
-      // Обновляем кэш запросов
       queryClient.invalidateQueries({ queryKey: ['telegram-groups'] });
     } catch (error) {
-      console.error('Ошибка анализа группы:', error);
+      console.error('Ошибка анализа модераторов:', error);
+      alert('Ошибка анализа модераторов. Попробуйте снова.');
     } finally {
       setAnalyzing(false);
     }
+  };
+
+  // Обработчик для запуска анализа сообщества
+  const handleCommunityAnalysis = (result: any) => {
+    setCommunityResults(result);
+    setShowCommunityDetails(true);
+    setShowCommunityForm(false);
   };
   
   // Обработчик для добавления новой группы
@@ -86,13 +99,11 @@ export const TelegramPage: React.FC = () => {
     setAddGroupError('');
     
     try {
-      // Преобразуем строку с модераторами в массив
       const moderatorsList = moderators
         .split(',')
         .map(m => m.trim())
         .filter(m => m.length > 0);
       
-      // Вызываем API для добавления группы
       const response = await api.get(`/telegram/groups_add`, {
         params: { 
           group_link: groupLink,
@@ -101,12 +112,10 @@ export const TelegramPage: React.FC = () => {
       });
       
       if (response.data.status === 'success' || response.data.status === 'already_exists') {
-        // Очищаем форму и скрываем её
         setGroupLink('');
         setModerators('');
         setShowAddGroupForm(false);
         
-        // Обновляем список групп
         queryClient.invalidateQueries({ queryKey: ['telegram-groups'] });
       } else {
         setAddGroupError("Не удалось добавить группу. Попробуйте снова.");
@@ -117,6 +126,16 @@ export const TelegramPage: React.FC = () => {
     } finally {
       setAddingGroup(false);
     }
+  };
+
+  // Функция для сброса состояния при переключении типа анализа
+  const handleAnalysisTypeChange = (type: AnalysisType) => {
+    setAnalysisType(type);
+    setShowAnalysisForm(false);
+    setShowCommunityForm(false);
+    setShowAnalysisDetails(false);
+    setShowCommunityDetails(false);
+    setPrompt('');
   };
 
   // Если groupId не указан, показываем список групп
@@ -201,8 +220,8 @@ export const TelegramPage: React.FC = () => {
             <div className="bg-white shadow rounded-lg p-6">
               <h3 className="text-lg font-medium mb-4">Как использовать</h3>
               <p className="text-gray-600 mb-4">
-                Этот модуль помогает анализировать Telegram группы для оценки работы модераторов, 
-                анализа настроений и вовлеченности сообщества.
+                Этот модуль помогает анализировать Telegram группы для оценки работы модераторов 
+                и анализа настроений сообщества.
               </p>
               <div className="space-y-3">
                 <div className="flex items-start">
@@ -218,7 +237,7 @@ export const TelegramPage: React.FC = () => {
                     <span className="text-indigo-700 font-bold">2</span>
                   </div>
                   <p className="text-gray-600">
-                    Выберите группу и введите критерии анализа (промпт)
+                    Выберите тип анализа и введите критерии оценки
                   </p>
                 </div>
                 <div className="flex items-start">
@@ -284,7 +303,7 @@ export const TelegramPage: React.FC = () => {
   // Получаем список модераторов из настроек группы
   const groupModerators = group.settings?.moderators || [];
 
-  // Мок-данные для демонстрации (в реальном приложении будут из API)
+  // Мок-данные для демонстрации
   const mockData = {
     responseTime: [
       { date: '2025-04-01', value: 4.8 },
@@ -303,6 +322,9 @@ export const TelegramPage: React.FC = () => {
     }
   };
 
+  // Определяем какие результаты показывать в метриках
+  const currentResults = analysisType === 'moderators' ? analysisResults : communityResults;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -318,22 +340,73 @@ export const TelegramPage: React.FC = () => {
             >
               Ко всем группам
             </Link>
-            
-            {/* Кнопка для запуска анализа */}
-            <button 
-              onClick={() => setShowAnalysisForm(!showAnalysisForm)}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
+          </div>
+        </div>
+
+        {/* Переключатель типов анализа */}
+        <div className="bg-white shadow rounded-lg p-6 mb-8">
+          <h3 className="text-lg font-medium mb-4">Тип Анализа</h3>
+          
+          <div className="flex space-x-4 mb-6">
+            <button
+              onClick={() => handleAnalysisTypeChange('moderators')}
+              className={`flex items-center px-4 py-2 rounded-md ${
+                analysisType === 'moderators'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
             >
-              {showAnalysisForm ? 'Отмена' : 'Новый Анализ'}
+              <Users className="h-5 w-5 mr-2" />
+              Анализ Модераторов
             </button>
+            
+            <button
+              onClick={() => handleAnalysisTypeChange('community')}
+              className={`flex items-center px-4 py-2 rounded-md ${
+                analysisType === 'community'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              <MessageSquare className="h-5 w-5 mr-2" />
+              Анализ Настроений Жителей
+            </button>
+          </div>
+
+          <div className="text-sm text-gray-600 mb-4">
+            {analysisType === 'moderators' 
+              ? 'Анализ эффективности работы модераторов группы'
+              : 'Анализ настроений жителей и проблем ЖКХ'
+            }
+          </div>
+
+          {/* Кнопки запуска анализа */}
+          <div className="flex space-x-3">
+            {analysisType === 'moderators' ? (
+              <button 
+                onClick={() => setShowAnalysisForm(!showAnalysisForm)}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
+                disabled={analyzing}
+              >
+                {showAnalysisForm ? 'Отмена' : 'Новый Анализ Модераторов'}
+              </button>
+            ) : (
+              <button 
+                onClick={() => setShowCommunityForm(!showCommunityForm)}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md"
+                disabled={analyzing}
+              >
+                {showCommunityForm ? 'Отмена' : 'Анализ Настроений Жителей'}
+              </button>
+            )}
           </div>
         </div>
         
-        {/* Форма ввода промпта для анализа */}
-        {showAnalysisForm && (
+        {/* Форма анализа модераторов */}
+        {showAnalysisForm && analysisType === 'moderators' && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-medium mb-4">Запустить Анализ</h3>
-            <form onSubmit={(e) => { e.preventDefault(); handleAnalyze(); }}>
+            <h3 className="text-lg font-medium mb-4">Анализ Модераторов</h3>
+            <form onSubmit={(e) => { e.preventDefault(); handleModeratorAnalysis(); }}>
               <div className="mb-4">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Критерии Анализа
@@ -409,6 +482,15 @@ export const TelegramPage: React.FC = () => {
             </form>
           </div>
         )}
+
+        {/* Форма анализа сообщества */}
+        {showCommunityForm && analysisType === 'community' && (
+          <CommunityAnalysisForm
+            groupId={groupId}
+            onSuccess={handleCommunityAnalysis}
+            onCancel={() => setShowCommunityForm(false)}
+          />
+        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           <DashboardCard
@@ -417,18 +499,27 @@ export const TelegramPage: React.FC = () => {
             icon={<Users className="h-6 w-6 text-blue-600" />}
           />
           <DashboardCard
-            title="Ср. Время Ответа"
-            value={analysisResults?.summary?.response_time_avg ? `${analysisResults.summary.response_time_avg} мин` : mockData.moderatorStats.avgResponse}
+            title={analysisType === 'moderators' ? "Ср. Время Ответа" : "Удовлетворенность"}
+            value={analysisType === 'moderators' 
+              ? (currentResults?.summary?.response_time_avg ? `${currentResults.summary.response_time_avg} мин` : mockData.moderatorStats.avgResponse)
+              : (currentResults?.sentiment_summary?.satisfaction_score ? `${currentResults.sentiment_summary.satisfaction_score}%` : "Н/Д")
+            }
             icon={<Clock className="h-6 w-6 text-yellow-600" />}
           />
           <DashboardCard
-            title="Решено Вопросов"
-            value={analysisResults?.summary?.resolved_issues || mockData.moderatorStats.resolved}
+            title={analysisType === 'moderators' ? "Решено Вопросов" : "Уровень Жалоб"}
+            value={analysisType === 'moderators'
+              ? (currentResults?.summary?.resolved_issues || mockData.moderatorStats.resolved)
+              : (currentResults?.sentiment_summary?.complaint_level || "Н/Д")
+            }
             icon={<BarChart2 className="h-6 w-6 text-green-600" />}
           />
           <DashboardCard
-            title="Удовлетворенность"
-            value={analysisResults?.summary?.satisfaction_score ? `${analysisResults.summary.satisfaction_score}%` : mockData.moderatorStats.satisfaction}
+            title={analysisType === 'moderators' ? "Удовлетворенность" : "Общее Настроение"}
+            value={analysisType === 'moderators'
+              ? (currentResults?.summary?.satisfaction_score ? `${currentResults.summary.satisfaction_score}%` : mockData.moderatorStats.satisfaction)
+              : (currentResults?.sentiment_summary?.overall_mood || "Н/Д")
+            }
             icon={<MessageSquare className="h-6 w-6 text-purple-600" />}
           />
         </div>
@@ -438,23 +529,23 @@ export const TelegramPage: React.FC = () => {
             data={mockData.responseTime}
             dataKey="value"
             xAxisKey="date"
-            title="Тренд Времени Ответа (минуты)"
+            title={analysisType === 'moderators' ? "Тренд Времени Ответа (минуты)" : "Динамика Настроений"}
             color="#3b82f6"
           />
           
           <SentimentAnalysis 
             groupId={groupId}
-            analysisResults={analysisResults}
+            analysisResults={analysisType === 'moderators' ? analysisResults : null}  // ← ИСПРАВЛЕНИЕ
             isAnalyzing={analyzing}
-            onAnalyze={() => setShowAnalysisForm(true)}
+            onAnalyze={() => analysisType === 'moderators' ? setShowAnalysisForm(true) : setShowCommunityForm(true)}
           />
         </div>
         
-        {/* Детализированные результаты анализа */}
-        {analysisResults && showAnalysisDetails && (
+        {/* Результаты анализа модераторов */}
+        {analysisResults && showAnalysisDetails && analysisType === 'moderators' && (
           <div className="mb-8">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold text-gray-900">Результаты Анализа</h2>
+              <h2 className="text-xl font-semibold text-gray-900">Результаты Анализа Модераторов</h2>
               <button 
                 onClick={() => setShowAnalysisDetails(!showAnalysisDetails)}
                 className="text-indigo-600 hover:text-indigo-800"
@@ -463,6 +554,7 @@ export const TelegramPage: React.FC = () => {
               </button>
             </div>
             
+            {/* Подробные результаты анализа модераторов (существующий код) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
               {/* Сентимент */}
               <div className="bg-white rounded-lg shadow p-6">
@@ -487,18 +579,6 @@ export const TelegramPage: React.FC = () => {
                     </p>
                   </div>
                 </div>
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <p className="text-sm text-gray-700 font-medium mb-2">Общий Балл Настроений</p>
-                  <div className="w-full bg-gray-200 rounded-full h-4">
-                    <div
-                      className="bg-blue-600 h-4 rounded-full"
-                      style={{ width: `${analysisResults.summary?.sentiment_score || 0}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-right text-sm text-gray-600 mt-1">
-                    {analysisResults.summary?.sentiment_score || 0}%
-                  </p>
-                </div>
               </div>
 
               {/* Модераторы */}
@@ -517,108 +597,18 @@ export const TelegramPage: React.FC = () => {
                       ></div>
                     </div>
                   </div>
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <p className="text-sm text-gray-600">Полезность</p>
-                      <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.helpfulness || 0}%</p>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-blue-500 h-2 rounded-full" 
-                        style={{ width: `${analysisResults.moderator_metrics?.performance?.helpfulness || 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex justify-between mb-1">
-                      <p className="text-sm text-gray-600">Ясность</p>
-                      <p className="text-sm font-medium">{analysisResults.moderator_metrics?.performance?.clarity || 0}%</p>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className="bg-purple-500 h-2 rounded-full" 
-                        style={{ width: `${analysisResults.moderator_metrics?.performance?.clarity || 0}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-                
-                <div className="mt-6">
-                  <h4 className="font-medium text-sm text-gray-700 mb-3">Метрики Времени Ответа</h4>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Мин</p>
-                      <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.min || 0} мин
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Ср</p>
-                      <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.avg || 0} мин
-                      </p>
-                    </div>
-                    <div className="bg-gray-50 p-3 rounded-lg text-center">
-                      <p className="text-xs text-gray-500">Макс</p>
-                      <p className="text-lg font-semibold text-gray-700">
-                        {analysisResults.moderator_metrics?.response_time?.max || 0} мин
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-              {/* Ключевые темы */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Ключевые Темы Обсуждения</h3>
-                {analysisResults.key_topics && analysisResults.key_topics.length > 0 ? (
-                  <ul className="space-y-3">
-                    {analysisResults.key_topics.map((topic: string, index: number) => (
-                      <li key={index} className="flex items-center p-3 bg-gray-50 rounded-lg">
-                        <div className="p-2 bg-indigo-100 rounded-full mr-3">
-                          <Activity className="h-4 w-4 text-indigo-600" />
-                        </div>
-                        <span className="text-gray-700 capitalize">{topic}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="text-gray-500 text-center py-8">Ключевые темы не определены</p>
-                )}
-              </div>
-              
-              {/* Рекомендации */}
-              <div className="bg-white rounded-lg shadow p-6">
-                <h3 className="text-lg font-medium mb-4">Рекомендации по Улучшению</h3>
-                {analysisResults.recommendations && analysisResults.recommendations.length > 0 ? (
-                  <div className="bg-blue-50 p-4 rounded-lg">
-                    <ul className="space-y-3">
-                      {analysisResults.recommendations.map((recommendation: string, index: number) => (
-                        <li key={index} className="flex">
-                          <AlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0 mr-3" />
-                          <p className="text-gray-700">{recommendation}</p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <p className="text-gray-500 text-center py-8">Рекомендации недоступны</p>
-                )}
-              </div>
-            </div>
-            
-            {/* Информация о промпте */}
-            {analysisResults.prompt && (
-              <div className="bg-white rounded-lg shadow p-6 mb-8">
-                <h3 className="text-lg font-medium mb-4">Критерии Анализа</h3>
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <p className="text-gray-700">{analysisResults.prompt}</p>
-                </div>
-              </div>
-            )}
           </div>
+        )}
+
+        {/* Результаты анализа сообщества */}
+        {communityResults && showCommunityDetails && analysisType === 'community' && (
+          <CommunityAnalysisResults
+            results={communityResults}
+            onHide={() => setShowCommunityDetails(false)}
+          />
         )}
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">

@@ -229,5 +229,182 @@ class OpenAIService:
                 "Попробуйте запустить анализ позже"
             ]
         }
+    
+    async def analyze_community_sentiment(
+        self,
+        messages: List[Dict[str, Any]],
+        prompt: str = None,
+        group_name: str = "Unknown"
+    ) -> Dict[str, Any]:
+        """
+        Анализ настроений жителей и проблем ЖКХ
+        """
+        try:
+            # Системный промпт для анализа жителей ЖКХ
+            system_prompt = """Ты - эксперт по анализу общественных настроений в жилых комплексах и районах. 
+            Анализируй сообщения жителей для выявления:
+            
+            1. Основные проблемы и жалобы
+            2. Качество работы управляющих компаний и коммунальных служб  
+            3. Общие настроения жителей
+            4. Предложения по улучшениям
+            5. Проблемные зоны (подъезды, дворы, инфраструктура)
+            
+            Верни результат СТРОГО в JSON формате:
+            {
+                "sentiment_summary": {
+                    "overall_mood": "недовольны|нейтрально|довольны",
+                    "satisfaction_score": number (0-100),
+                    "complaint_level": "низкий|средний|высокий"
+                },
+                "main_issues": [
+                    {"category": "ЖКХ|Двор|Подъезд|Парковка|Шум|Безопасность", "issue": "описание", "frequency": number}
+                ],
+                "service_quality": {
+                    "управляющая_компания": number (0-100),
+                    "коммунальные_службы": number (0-100), 
+                    "уборка": number (0-100),
+                    "безопасность": number (0-100)
+                },
+                "improvement_suggestions": [string],
+                "key_topics": [string],
+                "urgent_issues": [string]
+            }"""
+            
+            # Подготавливаем данные сообщений
+            message_texts = []
+            for msg in messages[:50]:  # Анализируем последние 50 сообщений
+                if msg.get('text') and len(msg['text']) > 10:
+                    message_texts.append({
+                        'text': msg['text'][:300],  # Ограничиваем длину
+                        'date': msg.get('date', '')
+                    })
+            
+            # Пользовательский промпт
+            if not prompt:
+                prompt = "Проанализируй настроения жителей и выяви основные проблемы в жилом комплексе"
+                
+            user_prompt = f"""
+            ГРУППА: {group_name}
+            ЗАДАЧА: {prompt}
+            
+            СООБЩЕНИЯ ЖИТЕЛЕЙ ({len(message_texts)} шт.):
+            """
+            
+            for i, msg in enumerate(message_texts[:20]):  # Показываем только 20 для экономии токенов
+                user_prompt += f"\n{i+1}. [{msg['date']}] {msg['text']}"
+            
+            user_prompt += "\n\nПроанализируй настроения и проблемы жителей согласно указанным критериям."
+            
+            # Запрос к OpenAI
+            response = await self.client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.7,
+                max_tokens=2000
+            )
+            
+            # Парсим ответ
+            result = self._parse_openai_response(response.choices[0].message.content)
+            
+            logger.info(f"Community sentiment analysis completed for {group_name}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in community sentiment analysis: {str(e)}")
+            return self._get_community_fallback_result()
+
+    def _get_community_fallback_result(self) -> Dict[str, Any]:
+        """Fallback для анализа сообщества"""
+        return {
+            "sentiment_summary": {
+                "overall_mood": "mock data",
+                "satisfaction_score": 00,
+                "complaint_level": "mock data"
+            },
+            "main_issues": [
+                {"category": "ЖКХ", "issue": "mock data", "frequency": 1}
+            ],
+            "service_quality": {
+                "управляющая_компания": 00,
+                "коммунальные_службы": 00,
+                "уборка": 00,
+                "безопасность": 00
+            },
+            "improvement_suggestions": ["mock data"],
+            "key_topics": ["общие вопросы"],
+            "urgent_issues": []
+        }
+    
+    def _parse_community_response(self, response_text: str) -> Dict[str, Any]:
+        """Парсинг ответа от OpenAI для анализа сообщества"""
+        try:
+            # Ищем JSON в ответе
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != 0:
+                json_str = response_text[start_idx:end_idx]
+                result = json.loads(json_str)
+                
+                # Валидируем структуру для анализа сообщества
+                if self._validate_community_structure(result):
+                    logger.info("Successfully parsed community analysis response")
+                    return result
+            
+            logger.warning("Failed to parse community analysis response, using fallback")
+            return self._get_community_fallback_result()
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in community analysis response: {e}")
+            return self._get_community_fallback_result()
+        except Exception as e:
+            logger.error(f"Error parsing community analysis response: {e}")
+            return self._get_community_fallback_result()
+
+        def _validate_community_structure(self, result: Dict[str, Any]) -> bool:
+            """Валидация структуры результата анализа сообщества"""
+            try:
+                # Проверяем основные ключи
+                required_keys = ['sentiment_summary', 'main_issues', 'service_quality', 'improvement_suggestions', 'key_topics', 'urgent_issues']
+                
+                if not all(key in result for key in required_keys):
+                    logger.warning(f"Missing required keys in community analysis result. Expected: {required_keys}, Got: {list(result.keys())}")
+                    return False
+                
+                # Проверяем структуру sentiment_summary
+                sentiment_summary = result.get('sentiment_summary', {})
+                sentiment_required = ['overall_mood', 'satisfaction_score', 'complaint_level']
+                if not all(key in sentiment_summary for key in sentiment_required):
+                    logger.warning(f"Invalid sentiment_summary structure. Expected: {sentiment_required}, Got: {list(sentiment_summary.keys())}")
+                    return False
+                
+                # Проверяем что main_issues это список
+                if not isinstance(result.get('main_issues', []), list):
+                    logger.warning("main_issues should be a list")
+                    return False
+                
+                # Проверяем структуру service_quality
+                service_quality = result.get('service_quality', {})
+                if not isinstance(service_quality, dict):
+                    logger.warning("service_quality should be a dictionary")
+                    return False
+                
+                # Проверяем что остальные поля это списки
+                list_fields = ['improvement_suggestions', 'key_topics', 'urgent_issues']
+                for field in list_fields:
+                    if not isinstance(result.get(field, []), list):
+                        logger.warning(f"{field} should be a list")
+                        return False
+                
+                logger.info("Community analysis result structure is valid")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error validating community analysis structure: {e}")
+                return False
 
 
