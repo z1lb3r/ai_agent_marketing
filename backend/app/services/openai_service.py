@@ -308,7 +308,7 @@ class OpenAIService:
             )
             
             # Парсим ответ
-            result = self._parse_openai_response(response.choices[0].message.content)
+            result = self._parse_community_response(response.choices[0].message.content)
             
             logger.info(f"Community sentiment analysis completed for {group_name}")
             return result
