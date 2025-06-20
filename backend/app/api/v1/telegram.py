@@ -1281,11 +1281,13 @@ async def analyze_community_sentiment(
 ):
     """Анализ настроений жителей и проблем ЖКХ"""
     try:
-        logger.info(f"Starting community sentiment analysis for group {group_id}")
+        logger.info(f"🚀 Starting community sentiment analysis for group {group_id}")
         
         # Извлекаем параметры
         prompt = analysis_params.get("prompt", "")
-        days_back = analysis_params.get("days_back", 7)  # ← ПОЛУЧАЕМ days_back
+        days_back = analysis_params.get("days_back", 7)
+        
+        logger.info(f"📊 Analysis parameters: days_back={days_back}, prompt_length={len(prompt)}")
         
         # Проверяем группу
         group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
@@ -1297,35 +1299,64 @@ async def analyze_community_sentiment(
         group_name = group_data.get("name", "Unknown")
         telegram_group_id = group_data.get("group_id")
         
-        # ИСПРАВЛЕНО: Получаем сообщения с учетом days_back
+        logger.info(f"📱 Fetching messages from Telegram group: {telegram_group_id}")
+        
+        # Получаем сообщения с учетом days_back
         messages = await telegram_service.get_group_messages(
             telegram_group_id, 
-            limit=1000,  # Увеличиваем лимит как fallback
-            days_back=days_back,  # ← ПЕРЕДАЕМ days_back
+            limit=1000,
+            days_back=days_back,
             get_users=False
         )
         
         if not messages:
+            logger.warning("❌ No messages found for analysis")
             raise HTTPException(status_code=400, detail="No messages found for analysis")
         
-        logger.info(f"Retrieved {len(messages)} messages for {days_back} days analysis")
+        logger.info(f"✅ Retrieved {len(messages)} messages for {days_back} days analysis")
         
-        # Анализ настроений сообщества
-        analysis_result = await openai_service.analyze_community_sentiment(
-            messages=messages,
-            prompt=prompt,
-            group_name=group_name
-        )
+        # ДОБАВЛЯЕМ ТАЙМАУТ для OpenAI анализа
+        logger.info("🤖 Starting OpenAI analysis...")
+        
+        try:
+            # Устанавливаем таймаут 60 секунд для OpenAI
+            analysis_result = await asyncio.wait_for(
+                openai_service.analyze_community_sentiment(
+                    messages=messages,
+                    prompt=prompt,
+                    group_name=group_name
+                ),
+                timeout=60.0  # 60 секунд таймаут
+            )
+            logger.info("✅ OpenAI analysis completed successfully")
+            
+        except asyncio.TimeoutError:
+            logger.error("⏰ OpenAI analysis timed out after 60 seconds")
+            # Возвращаем fallback результат
+            analysis_result = {
+                "sentiment_summary": {
+                    "overall_mood": "анализ прерван",
+                    "satisfaction_score": 0,
+                    "complaint_level": "неопределен"
+                },
+                "main_issues": [{"category": "Техническая", "issue": "Анализ прерван по таймауту", "frequency": 1}],
+                "service_quality": {"управляющая_компания": 0, "коммунальные_службы": 0, "уборка": 0, "безопасность": 0},
+                "improvement_suggestions": ["Попробуйте анализ с меньшим количеством дней"],
+                "key_topics": ["таймаут"],
+                "urgent_issues": ["Система анализа недоступна"]
+            }
         
         # Добавляем метаданные
         analysis_result.update({
             "timestamp": datetime.now().isoformat(),
             "prompt": prompt,
             "messages_analyzed": len(messages),
-            "days_analyzed": days_back,  # ← ДОБАВЛЯЕМ info о периоде
+            "days_analyzed": days_back,
             "group_name": group_name,
             "analysis_type": "community_sentiment"
         })
+        
+        logger.info("💾 Saving analysis to database...")
         
         # Сохраняем в базу
         analysis_report = {
@@ -1333,18 +1364,21 @@ async def analyze_community_sentiment(
             "type": "community_sentiment",
             "results": analysis_result,
             "prompt": prompt,
-            "days_analyzed": days_back  # ← СОХРАНЯЕМ период в БД
+            "days_analyzed": days_back
         }
         
         try:
             supabase_client.table('analysis_reports').insert(analysis_report).execute()
+            logger.info("✅ Analysis saved to database")
         except Exception as db_error:
-            logger.warning(f"Failed to save to database: {db_error}")
+            logger.warning(f"⚠️ Failed to save to database: {db_error}")
         
+        logger.info("🎉 Community analysis completed successfully")
         return {"status": "success", "result": analysis_result}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Community analysis failed: {str(e)}")
+        logger.error(f"💥 Community analysis failed: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
