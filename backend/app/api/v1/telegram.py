@@ -1285,7 +1285,7 @@ async def analyze_community_sentiment(
         
         # Извлекаем параметры
         prompt = analysis_params.get("prompt", "")
-        days_back = analysis_params.get("days_back", 7)
+        days_back = analysis_params.get("days_back", 7)  # ← ПОЛУЧАЕМ days_back
         
         # Проверяем группу
         group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
@@ -1297,15 +1297,18 @@ async def analyze_community_sentiment(
         group_name = group_data.get("name", "Unknown")
         telegram_group_id = group_data.get("group_id")
         
-        # Получаем сообщения
+        # ИСПРАВЛЕНО: Получаем сообщения с учетом days_back
         messages = await telegram_service.get_group_messages(
             telegram_group_id, 
-            limit=100,
-            get_users=False  # Не нужна информация о пользователях
+            limit=1000,  # Увеличиваем лимит как fallback
+            days_back=days_back,  # ← ПЕРЕДАЕМ days_back
+            get_users=False
         )
         
         if not messages:
             raise HTTPException(status_code=400, detail="No messages found for analysis")
+        
+        logger.info(f"Retrieved {len(messages)} messages for {days_back} days analysis")
         
         # Анализ настроений сообщества
         analysis_result = await openai_service.analyze_community_sentiment(
@@ -1319,6 +1322,7 @@ async def analyze_community_sentiment(
             "timestamp": datetime.now().isoformat(),
             "prompt": prompt,
             "messages_analyzed": len(messages),
+            "days_analyzed": days_back,  # ← ДОБАВЛЯЕМ info о периоде
             "group_name": group_name,
             "analysis_type": "community_sentiment"
         })
@@ -1328,7 +1332,8 @@ async def analyze_community_sentiment(
             "group_id": group_id,
             "type": "community_sentiment",
             "results": analysis_result,
-            "prompt": prompt
+            "prompt": prompt,
+            "days_analyzed": days_back  # ← СОХРАНЯЕМ период в БД
         }
         
         try:

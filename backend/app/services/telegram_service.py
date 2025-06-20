@@ -163,108 +163,81 @@ class TelegramService:
     async def get_group_messages(
         self, 
         group_id: str, 
-        limit: int = 100,
-        offset_date: Optional[datetime] = None,
-        include_replies: bool = True,
-        get_users: bool = True,
-        save_to_db: bool = False
+        limit: int = 100, 
+        save_to_db: bool = False, 
+        get_users: bool = False,
+        days_back: Optional[int] = None  # ← НОВЫЙ ПАРАМЕТР
     ) -> List[Dict[str, Any]]:
         """
-        ИСПРАВЛЕННЫЙ метод получения сообщений из группы
-        Использует рабочий подход без execute_telegram_operation
+        Получить сообщения из группы
+        
+        Args:
+            group_id: ID группы в Telegram
+            limit: Максимальное количество сообщений (используется если days_back не указан)
+            save_to_db: Сохранять ли сообщения в базу данных
+            get_users: Получать ли информацию о пользователях
+            days_back: За сколько дней назад получать сообщения (приоритет над limit)
         """
-        try:
-            # Подключаемся если нужно
-            await self.ensure_connected()
-            
-            # Получаем entity напрямую (работает!)
+        async def operation():
             entity = await self.get_entity(group_id)
-            
             messages = []
-            users_cache = {}  # Кэш пользователей
             
-            # Используем get_messages вместо iter_messages (быстрее и надежнее)
-            try:
-                messages_result = await self.client.get_messages(entity, limit=limit)
-                
-                for message in messages_result:
-                    if message and hasattr(message, 'id'):
-                        # Базовая информация о сообщении
-                        msg = {
-                            'message_id': str(message.id),
-                            'text': message.text or "",
-                            'date': message.date.isoformat(),
-                            'sender_id': str(message.sender_id) if message.sender_id else None,
-                            'is_reply': message.reply_to is not None,
-                            'reply_to_message_id': str(message.reply_to.reply_to_msg_id) if message.reply_to else None,
-                            'has_media': message.media is not None,
-                            'edit_date': message.edit_date.isoformat() if message.edit_date else None,
-                            'views': message.views if hasattr(message, 'views') else None,
-                            'reactions': []
-                        }
-                        
-                        # Добавляем информацию о реакциях (если есть)
-                        if hasattr(message, 'reactions') and message.reactions:
-                            for reaction in message.reactions.results:
-                                msg['reactions'].append({
-                                    'emoji': reaction.reaction,
-                                    'count': reaction.count
-                                })
-                        
-                        # Получаем информацию об отправителе, если нужно
-                        if get_users and message.sender_id:
-                            sender_id = str(message.sender_id)
-                            if sender_id not in users_cache:
-                                try:
-                                    sender = await message.get_sender()
-                                    users_cache[sender_id] = {
-                                        'id': sender_id,
-                                        'username': getattr(sender, 'username', None),
-                                        'first_name': getattr(sender, 'first_name', None),
-                                        'last_name': getattr(sender, 'last_name', None),
-                                        'is_bot': getattr(sender, 'bot', False),
-                                        'is_premium': getattr(sender, 'premium', False) if hasattr(sender, 'premium') else False
-                                    }
-                                except Exception as e:
-                                    logger.warning(f"Failed to get sender for message {message.id}: {e}")
-                            
-                            if sender_id in users_cache:
-                                msg['sender'] = users_cache[sender_id]
-                        
-                        messages.append(msg)
-                        
-                        # Сохраняем в базу данных если требуется
-                        if save_to_db:
-                            await self._save_message_to_db(group_id, msg)
-                
-                logger.info(f"Retrieved {len(messages)} messages from group {group_id} using get_messages method")
-                return messages
-                
-            except Exception as get_messages_error:
-                logger.warning(f"get_messages failed, trying iter_messages: {get_messages_error}")
-                
-                # Fallback на iter_messages если get_messages не сработал
-                count = 0
-                async for message in self.client.iter_messages(entity, limit=limit):
-                    if message and hasattr(message, 'id'):
-                        msg = {
-                            'message_id': str(message.id),
-                            'text': message.text or "",
-                            'date': message.date.isoformat(),
-                            'sender_id': str(message.sender_id) if message.sender_id else None,
-                            'is_reply': message.reply_to is not None,
-                            'reply_to_message_id': str(message.reply_to.reply_to_msg_id) if message.reply_to else None,
-                            'has_media': message.media is not None,
-                            'views': message.views if hasattr(message, 'views') else None
-                        }
-                        messages.append(msg)
-                        count += 1
-                        if count >= limit:
-                            break
-                
-                logger.info(f"Retrieved {len(messages)} messages from group {group_id} using iter_messages fallback")
-                return messages
-                
+            # Вычисляем дату отсечки если указан days_back
+            offset_date = None
+            if days_back is not None:
+                offset_date = datetime.now() - timedelta(days=days_back)
+                logger.info(f"Getting messages from {offset_date.strftime('%Y-%m-%d')} ({days_back} days back)")
+            
+            async for message in self.client.iter_messages(
+                entity, 
+                limit=limit if days_back is None else None,  # Если days_back указан, лимит не ставим
+                offset_date=offset_date  # Telegram API поддерживает фильтрацию по дате
+            ):
+                if isinstance(message, Message):
+                    # Дополнительная проверка даты (на случай если offset_date работает неточно)
+                    if days_back is not None and offset_date:
+                        if message.date < offset_date:
+                            break  # Останавливаемся если дошли до старых сообщений
+                    
+                    # Получаем информацию об отправителе
+                    sender_info = {}
+                    if get_users and message.sender_id:
+                        try:
+                            sender = await message.get_sender()
+                            if sender:
+                                sender_info = {
+                                    'id': str(sender.id),
+                                    'username': getattr(sender, 'username', None),
+                                    'first_name': getattr(sender, 'first_name', None),
+                                    'last_name': getattr(sender, 'last_name', None),
+                                    'is_bot': getattr(sender, 'bot', False)
+                                }
+                        except Exception as e:
+                            logger.warning(f"Error getting sender info: {e}")
+                    
+                    msg = {
+                        'message_id': str(message.id),
+                        'sender_id': str(message.sender_id) if message.sender_id else None,
+                        'sender': sender_info if sender_info else None,
+                        'text': message.text or "",
+                        'date': message.date.isoformat(),
+                        'is_reply': bool(message.is_reply),
+                        'reply_to_message_id': str(message.reply_to_msg_id) if message.reply_to_msg_id else None,
+                        'has_media': bool(message.media)
+                    }
+                    
+                    messages.append(msg)
+                    
+                    # Сохраняем в базу если требуется
+                    if save_to_db:
+                        await self._save_message_to_db(group_id, msg)
+            
+            logger.info(f"Retrieved {len(messages)} messages from group {group_id}" + 
+                    (f" for last {days_back} days" if days_back else f" with limit {limit}"))
+            return messages
+        
+        try:
+            return await self.execute_telegram_operation(operation)
         except Exception as e:
             logger.error(f"Error retrieving messages from group {group_id}: {e}")
             raise
@@ -327,8 +300,7 @@ class TelegramService:
                         'is_megagroup': getattr(entity, 'megagroup', False)
                     })
                 
-                # Сохраняем или обновляем информацию в базе данных
-                await self._save_group_to_db(group_info)
+            
                 
                 logger.info(f"Retrieved info for group {group_id}")
                 return group_info
