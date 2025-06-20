@@ -166,7 +166,7 @@ class TelegramService:
         limit: int = 100, 
         save_to_db: bool = False, 
         get_users: bool = False,
-        days_back: Optional[int] = None  # ← НОВЫЙ ПАРАМЕТР
+        days_back: Optional[int] = None
     ) -> List[Dict[str, Any]]:
         """
         Получить сообщения из группы
@@ -183,21 +183,25 @@ class TelegramService:
             messages = []
             
             # Вычисляем дату отсечки если указан days_back
-            offset_date = None
+            cutoff_date = None
             if days_back is not None:
-                offset_date = datetime.now() - timedelta(days=days_back)
-                logger.info(f"Getting messages from {offset_date.strftime('%Y-%m-%d')} ({days_back} days back)")
+                cutoff_date = datetime.now() - timedelta(days=days_back)
+                logger.info(f"Will filter messages newer than {cutoff_date.strftime('%Y-%m-%d')} ({days_back} days back)")
             
-            async for message in self.client.iter_messages(
-                entity, 
-                limit=min(1000, limit) if days_back is None else 1000,  # ← ИСПРАВЛЕНО!
-                offset_date=offset_date
-            ):
+            # Определяем сколько сообщений получать
+            # Если указаны дни - берем больше сообщений, чтобы точно захватить нужный период
+            messages_limit = min(2000, limit) if days_back is None else 2000
+            
+            logger.info(f"Fetching up to {messages_limit} messages from Telegram...")
+            
+            # ПРОСТОЙ запрос без offset_date (не вызывает зависания!)
+            async for message in self.client.iter_messages(entity, limit=messages_limit):
                 if isinstance(message, Message):
-                    # Дополнительная проверка даты (на случай если offset_date работает неточно)
-                    if days_back is not None and offset_date:
-                        if message.date < offset_date:
-                            break  # Останавливаемся если дошли до старых сообщений
+                    # Проверяем дату сообщения ПОСЛЕ получения (безопасно!)
+                    if days_back is not None and cutoff_date:
+                        if message.date < cutoff_date:
+                            logger.info(f"Reached messages older than {cutoff_date.strftime('%Y-%m-%d')}, stopping")
+                            break  # Останавливаемся когда дошли до старых сообщений
                     
                     # Получаем информацию об отправителе
                     sender_info = {}
@@ -215,6 +219,7 @@ class TelegramService:
                         except Exception as e:
                             logger.warning(f"Error getting sender info: {e}")
                     
+                    # Формируем объект сообщения
                     msg = {
                         'message_id': str(message.id),
                         'sender_id': str(message.sender_id) if message.sender_id else None,
@@ -232,8 +237,21 @@ class TelegramService:
                     if save_to_db:
                         await self._save_message_to_db(group_id, msg)
             
-            logger.info(f"Retrieved {len(messages)} messages from group {group_id}" + 
-                    (f" for last {days_back} days" if days_back else f" with limit {limit}"))
+            # Дополнительная фильтрация и логирование
+            if days_back is not None:
+                original_count = len(messages)
+                if cutoff_date:
+                    # Убеждаемся что все сообщения в нужном периоде
+                    messages = [
+                        msg for msg in messages 
+                        if datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) >= cutoff_date
+                    ]
+                    logger.info(f"Filtered from {original_count} to {len(messages)} messages within {days_back} days")
+                
+                logger.info(f"Retrieved {len(messages)} messages from group {group_id} for last {days_back} days")
+            else:
+                logger.info(f"Retrieved {len(messages)} messages from group {group_id} with limit {limit}")
+            
             return messages
         
         try:
