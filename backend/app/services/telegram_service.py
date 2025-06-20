@@ -190,8 +190,8 @@ class TelegramService:
             
             async for message in self.client.iter_messages(
                 entity, 
-                limit=limit if days_back is None else None,  # Если days_back указан, лимит не ставим
-                offset_date=offset_date  # Telegram API поддерживает фильтрацию по дате
+                limit=min(1000, limit) if days_back is None else 1000,  # ← ИСПРАВЛЕНО!
+                offset_date=offset_date
             ):
                 if isinstance(message, Message):
                     # Дополнительная проверка даты (на случай если offset_date работает неточно)
