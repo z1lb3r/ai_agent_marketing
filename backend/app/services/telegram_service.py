@@ -166,43 +166,20 @@ class TelegramService:
         limit: int = 100, 
         save_to_db: bool = False, 
         get_users: bool = False,
-        days_back: Optional[int] = None
+        days_back: Optional[int] = None  # Параметр оставляем, но ИГНОРИРУЕМ
     ) -> List[Dict[str, Any]]:
         """
-        Получить сообщения из группы
-        
-        Args:
-            group_id: ID группы в Telegram
-            limit: Максимальное количество сообщений (используется если days_back не указан)
-            save_to_db: Сохранять ли сообщения в базу данных
-            get_users: Получать ли информацию о пользователях
-            days_back: За сколько дней назад получать сообщения (приоритет над limit)
+        Получить сообщения из группы (ПРОСТАЯ ВЕРСИЯ без days_back)
         """
         async def operation():
             entity = await self.get_entity(group_id)
             messages = []
             
-            # Вычисляем дату отсечки если указан days_back
-            cutoff_date = None
-            if days_back is not None:
-                cutoff_date = datetime.now() - timedelta(days=days_back)
-                logger.info(f"Will filter messages newer than {cutoff_date.strftime('%Y-%m-%d')} ({days_back} days back)")
+            logger.info(f"Getting {limit} messages from group {group_id} (simple mode)")
             
-            # Определяем сколько сообщений получать
-            # Если указаны дни - берем больше сообщений, чтобы точно захватить нужный период
-            messages_limit = min(2000, limit) if days_back is None else 2000
-            
-            logger.info(f"Fetching up to {messages_limit} messages from Telegram...")
-            
-            # ПРОСТОЙ запрос без offset_date (не вызывает зависания!)
-            async for message in self.client.iter_messages(entity, limit=messages_limit):
+            # ПРОСТОЙ вызов - как было раньше (работало!)
+            async for message in self.client.iter_messages(entity, 100):
                 if isinstance(message, Message):
-                    # Проверяем дату сообщения ПОСЛЕ получения (безопасно!)
-                    if days_back is not None and cutoff_date:
-                        if message.date < cutoff_date:
-                            logger.info(f"Reached messages older than {cutoff_date.strftime('%Y-%m-%d')}, stopping")
-                            break  # Останавливаемся когда дошли до старых сообщений
-                    
                     # Получаем информацию об отправителе
                     sender_info = {}
                     if get_users and message.sender_id:
@@ -237,21 +214,7 @@ class TelegramService:
                     if save_to_db:
                         await self._save_message_to_db(group_id, msg)
             
-            # Дополнительная фильтрация и логирование
-            if days_back is not None:
-                original_count = len(messages)
-                if cutoff_date:
-                    # Убеждаемся что все сообщения в нужном периоде
-                    messages = [
-                        msg for msg in messages 
-                        if datetime.fromisoformat(msg['date'].replace('Z', '+00:00')) >= cutoff_date
-                    ]
-                    logger.info(f"Filtered from {original_count} to {len(messages)} messages within {days_back} days")
-                
-                logger.info(f"Retrieved {len(messages)} messages from group {group_id} for last {days_back} days")
-            else:
-                logger.info(f"Retrieved {len(messages)} messages from group {group_id} with limit {limit}")
-            
+            logger.info(f"Retrieved {len(messages)} messages from group {group_id}")
             return messages
         
         try:
@@ -259,7 +222,8 @@ class TelegramService:
         except Exception as e:
             logger.error(f"Error retrieving messages from group {group_id}: {e}")
             raise
-    
+
+
     async def _save_message_to_db(self, group_id: str, message: Dict[str, Any]):
         """Сохранить сообщение в базу данных"""
         try:
