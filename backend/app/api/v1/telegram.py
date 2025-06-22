@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from ...services.telegram_service import TelegramService
 from ...core.database import supabase_client
 from ...core.config import settings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ...services.openai_service import OpenAIService
 import logging
 import traceback
@@ -358,7 +358,7 @@ async def analyze_group(
         
         # Добавляем метаданные
         analysis_result.update({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "prompt": prompt,
             "analyzed_moderators": moderators,
             "messages_analyzed": len(messages),
@@ -1279,13 +1279,15 @@ async def analyze_community_sentiment(
     group_id: str,
     analysis_params: dict = Body(...),
 ):
-    """Анализ настроений жителей и проблем ЖКХ"""
+    """Анализ настроений жителей и проблем ЖКХ с поддержкой days_back"""
     try:
-        logger.info(f"Starting community sentiment analysis for group {group_id}")
+        logger.info(f"🚀 Starting community sentiment analysis for group {group_id}")
         
         # Извлекаем параметры
         prompt = analysis_params.get("prompt", "")
         days_back = analysis_params.get("days_back", 7)
+        
+        logger.info(f"📊 Analysis parameters: days_back={days_back}, prompt_length={len(prompt)}")
         
         # Проверяем группу
         group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
@@ -1297,49 +1299,86 @@ async def analyze_community_sentiment(
         group_name = group_data.get("name", "Unknown")
         telegram_group_id = group_data.get("group_id")
         
-        # Получаем сообщения
+        logger.info(f"📱 Fetching messages from Telegram group: {telegram_group_id}")
+        
+        # БЕЗОПАСНЫЙ вызов с days_back (основан на рабочей версии)
         messages = await telegram_service.get_group_messages(
             telegram_group_id, 
-            limit=100,
-            get_users=False  # Не нужна информация о пользователях
+            limit=1000,           # Увеличиваем лимит, чтобы захватить достаточно сообщений
+            days_back=days_back,  # ПЕРЕДАЕМ days_back в безопасный метод
+            get_users=False       # Не нужна информация о пользователях
         )
+        
+        logger.info(f"✅ Retrieved {len(messages)} total messages")
         
         if not messages:
-            raise HTTPException(status_code=400, detail="No messages found for analysis")
+            logger.warning("No messages found in specified time period")
+            raise HTTPException(status_code=400, detail=f"No messages found for last {days_back} days")
         
-        # Анализ настроений сообщества
-        analysis_result = await openai_service.analyze_community_sentiment(
-            messages=messages,
-            prompt=prompt,
-            group_name=group_name
-        )
+        # Анализ настроений сообщества (как в рабочей версии)
+        logger.info("🤖 Starting OpenAI analysis...")
         
-        # Добавляем метаданные
+        try:
+            # Устанавливаем таймаут 60 секунд для OpenAI
+            analysis_result = await asyncio.wait_for(
+                openai_service.analyze_community_sentiment(
+                    messages=messages,
+                    prompt=prompt,
+                    group_name=group_name
+                ),
+                timeout=60.0
+            )
+            logger.info("✅ OpenAI analysis completed successfully")
+            
+        except asyncio.TimeoutError:
+            logger.error("⏰ OpenAI analysis timed out after 60 seconds")
+            # Возвращаем fallback результат
+            analysis_result = {
+                "sentiment_summary": {
+                    "overall_mood": "анализ прерван",
+                    "satisfaction_score": 0,
+                    "complaint_level": "неопределен"
+                },
+                "main_issues": [{"category": "Техническая", "issue": "Анализ прерван по таймауту", "frequency": 1}],
+                "service_quality": {"управляющая_компания": 0, "коммунальные_службы": 0, "уборка": 0, "безопасность": 0},
+                "improvement_suggestions": ["Попробуйте анализ с меньшим количеством дней"],
+                "key_topics": ["таймаут"],
+                "urgent_issues": ["Система анализа недоступна"]
+            }
+        
+        # Добавляем метаданные (как в рабочей версии)
         analysis_result.update({
             "timestamp": datetime.now().isoformat(),
             "prompt": prompt,
             "messages_analyzed": len(messages),
+            "days_analyzed": days_back,  # ДОБАВЛЯЕМ информацию о количестве дней
             "group_name": group_name,
             "analysis_type": "community_sentiment"
         })
         
-        # Сохраняем в базу
+        logger.info("💾 Saving analysis to database...")
+        
+        # Сохраняем в базу (как в рабочей версии)
         analysis_report = {
             "group_id": group_id,
             "type": "community_sentiment",
             "results": analysis_result,
-            "prompt": prompt
+            "prompt": prompt,
+            "days_analyzed": days_back  # СОХРАНЯЕМ days_back в БД
         }
         
         try:
             supabase_client.table('analysis_reports').insert(analysis_report).execute()
+            logger.info("✅ Analysis saved to database")
         except Exception as db_error:
-            logger.warning(f"Failed to save to database: {db_error}")
+            logger.warning(f"⚠️ Failed to save to database: {db_error}")
         
+        logger.info("🎉 Community analysis completed successfully")
         return {"status": "success", "result": analysis_result}
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Community analysis failed: {str(e)}")
+        logger.error(f"💥 Community analysis failed: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
