@@ -1301,21 +1301,55 @@ async def analyze_community_sentiment(
         
         logger.info(f"📱 Fetching messages from Telegram group: {telegram_group_id}")
         
-        # Получаем сообщения с учетом days_back
+        # БЕЗОПАСНЫЙ способ: НЕ передаем days_back, получаем фиксированное количество
         messages = await telegram_service.get_group_messages(
             telegram_group_id, 
-            limit=1000,
-            days_back=days_back,
+            limit=500,  # Фиксированное количество (как в других эндпоинтах)
             get_users=False
+            # НЕ передаем days_back - остается None по умолчанию!
         )
         
         if not messages:
             logger.warning("❌ No messages found for analysis")
             raise HTTPException(status_code=400, detail="No messages found for analysis")
         
-        logger.info(f"✅ Retrieved {len(messages)} messages for {days_back} days analysis")
+        logger.info(f"✅ Retrieved {len(messages)} total messages")
         
-        # ДОБАВЛЯЕМ ТАЙМАУТ для OpenAI анализа
+        # ФИЛЬТРУЕМ по дате УЖЕ ЗДЕСЬ (безопасно!)
+        if days_back and days_back > 0:
+            from datetime import datetime, timedelta
+            
+            # Вычисляем дату отсечки
+            cutoff_date = datetime.now() - timedelta(days=days_back)
+            logger.info(f"🔍 Filtering messages newer than {cutoff_date.strftime('%Y-%m-%d')}")
+            
+            # Фильтруем сообщения по дате
+            filtered_messages = []
+            for msg in messages:
+                try:
+                    # Парсим дату сообщения
+                    msg_date_str = msg.get('date', '')
+                    if msg_date_str:
+                        # Убираем Z и парсим
+                        clean_date_str = msg_date_str.replace('Z', '+00:00')
+                        msg_date = datetime.fromisoformat(clean_date_str)
+                        
+                        # Проверяем что сообщение в нужном периоде
+                        if msg_date >= cutoff_date:
+                            filtered_messages.append(msg)
+                except Exception as date_error:
+                    logger.warning(f"Error parsing date for message: {date_error}")
+                    # Если не можем распарсить дату - включаем сообщение
+                    filtered_messages.append(msg)
+            
+            messages = filtered_messages
+            logger.info(f"🔍 After filtering: {len(messages)} messages for last {days_back} days")
+        
+        if not messages:
+            logger.warning("❌ No messages found in specified time period")
+            raise HTTPException(status_code=400, detail=f"No messages found for last {days_back} days")
+        
+        # Анализ настроений сообщества (как было)
         logger.info("🤖 Starting OpenAI analysis...")
         
         try:
@@ -1326,7 +1360,7 @@ async def analyze_community_sentiment(
                     prompt=prompt,
                     group_name=group_name
                 ),
-                timeout=60.0  # 60 секунд таймаут
+                timeout=60.0
             )
             logger.info("✅ OpenAI analysis completed successfully")
             
