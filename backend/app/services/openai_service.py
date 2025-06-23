@@ -1,6 +1,8 @@
 from openai import AsyncOpenAI
 from typing import List, Dict, Any
 import json
+import asyncio
+from datetime import datetime
 import logging
 from ..core.config import settings
 
@@ -237,107 +239,289 @@ class OpenAIService:
         group_name: str = "Unknown"
     ) -> Dict[str, Any]:
         """
-        Анализ настроений жителей и проблем ЖКХ
+        Анализ настроений жителей и проблем ЖКХ с добавлением связанных сообщений
+        
+        Args:
+            messages: Список сообщений из группы
+            prompt: Критерии анализа от пользователя
+            group_name: Название группы
+            
+        Returns:
+            Результат анализа настроений сообщества с related_messages
         """
         try:
-            # Системный промпт для анализа жителей ЖКХ
-            system_prompt = """Ты - эксперт по анализу общественных настроений в жилых комплексах и районах. 
-            Анализируй сообщения жителей для выявления:
+            logger.info(f"🏠 Starting community sentiment analysis for group: {group_name}")
             
-            1. Основные проблемы и жалобы
-            2. Качество работы управляющих компаний и коммунальных служб  
-            3. Общие настроения жителей
-            4. Предложения по улучшениям
-            5. Проблемные зоны (подъезды, дворы, инфраструктура)
+            # Проверяем входные данные
+            if not messages:
+                logger.warning("❌ No messages provided for community analysis")
+                return self._get_community_fallback_result()
             
-            Верни результат СТРОГО в JSON формате:
-            {
-                "sentiment_summary": {
-                    "overall_mood": "недовольны|нейтрально|довольны",
-                    "satisfaction_score": number (0-100),
-                    "complaint_level": "низкий|средний|высокий"
-                },
-                "main_issues": [
-                    {"category": "ЖКХ|Двор|Подъезд|Парковка|Шум|Безопасность", "issue": "описание", "frequency": number}
-                ],
-                "service_quality": {
-                    "управляющая_компания": number (0-100),
-                    "коммунальные_службы": number (0-100), 
-                    "уборка": number (0-100),
-                    "безопасность": number (0-100)
-                },
-                "improvement_suggestions": [string],
-                "key_topics": [string],
-                "urgent_issues": [string]
-            }"""
+            # ОБНОВЛЕННЫЙ системный промпт для анализа жителей ЖКХ
+            system_prompt = """Ты - эксперт по анализу общественных настроений в жилых комплексах и районах.
+
+        Анализируй сообщения жителей для выявления:
+                
+        1. Основные проблемы и жалобы
+        2. Качество работы управляющих компаний и коммунальных служб  
+        3. Общие настроения жителей
+        4. Предложения по улучшениям
+        5. Проблемные зоны (подъезды, дворы, инфраструктура)
+
+        ВАЖНО: Для каждой найденной проблемы укажи конкретные сообщения, которые привели к этому выводу.
+
+        Верни результат СТРОГО в JSON формате:
+        {
+            "sentiment_summary": {
+                "overall_mood": "недовольны|нейтрально|довольны",
+                "satisfaction_score": number (0-100),
+                "complaint_level": "низкий|средний|высокий"
+            },
+            "main_issues": [
+                {
+                    "category": "ЖКХ|Двор|Подъезд|Парковка|Шум|Безопасность", 
+                    "issue": "описание проблемы", 
+                    "frequency": number,
+                    "related_messages": [
+                        {
+                            "text": "полный текст сообщения",
+                            "date": "2025-06-20T14:30:00",
+                            "author": "имя автора или null"
+                        }
+                    ]
+                }
+            ],
+            "service_quality": {
+                "управляющая_компания": number (0-100),
+                "коммунальные_службы": number (0-100), 
+                "уборка": number (0-100),
+                "безопасность": number (0-100)
+            },
+            "improvement_suggestions": [string],
+            "key_topics": [string],
+            "urgent_issues": [
+                {
+                    "issue": "описание срочной проблемы",
+                    "related_messages": [
+                        {
+                            "text": "текст сообщения",
+                            "date": "2025-06-20T14:30:00", 
+                            "author": "имя автора или null"
+                        }
+                    ]
+                }
+            ]
+        }"""
             
-            # Подготавливаем данные сообщений
+            # Подготавливаем данные сообщений (ограничиваем для экономии токенов)
             message_texts = []
-            for msg in messages[:50]:  # Анализируем последние 50 сообщений
-                if msg.get('text') and len(msg['text']) > 10:
+            for msg in messages:  # Максимум 100 сообщений
+                if msg.get('text') and len(msg['text'].strip()) > 5:
+                    # Извлекаем автора если есть
+                    author = None
+                    if msg.get('user_info') and msg['user_info']:
+                        first_name = msg['user_info'].get('first_name', '')
+                        last_name = msg['user_info'].get('last_name', '')
+                        if first_name:
+                            author = f"{first_name} {last_name[0] if last_name else ''}."
+                    
                     message_texts.append({
-                        'text': msg['text'][:300],  # Ограничиваем длину
-                        'date': msg.get('date', '')
+                        'text': msg['text'][:500],  # Ограничиваем длину сообщения
+                        'date': msg.get('date', ''),
+                        'author': author
                     })
             
             # Пользовательский промпт
-            if not prompt:
+            if not prompt or not prompt.strip():
                 prompt = "Проанализируй настроения жителей и выяви основные проблемы в жилом комплексе"
                 
             user_prompt = f"""
-            ГРУППА: {group_name}
-            ЗАДАЧА: {prompt}
+    ГРУППА: {group_name}
+    ЗАДАЧА: {prompt}
+
+    СООБЩЕНИЯ ЖИТЕЛЕЙ ({len(message_texts)} шт.):
+    """
             
-            СООБЩЕНИЯ ЖИТЕЛЕЙ ({len(message_texts)} шт.):
-            """
+            # Добавляем сообщения (максимум 30 для экономии токенов)
+            for i, msg in enumerate(message_texts[:30]):
+                author_info = f" от {msg['author']}" if msg['author'] else ""
+                user_prompt += f"\n{i+1}. [{msg['date']}]{author_info}: {msg['text']}"
             
-            for i, msg in enumerate(message_texts[:20]):  # Показываем только 20 для экономии токенов
-                user_prompt += f"\n{i+1}. [{msg['date']}] {msg['text']}"
+            if len(message_texts) > 30:
+                user_prompt += f"\n... и еще {len(message_texts) - 30} сообщений"
             
-            user_prompt += "\n\nПроанализируй настроения и проблемы жителей согласно указанным критериям."
+            user_prompt += """
+
+    ВАЖНЫЕ ИНСТРУКЦИИ:
+    1. Для каждой проблемы в main_issues укажи ВСЕ сообщения, которые привели к этому выводу
+    2. Для каждой срочной проблемы в urgent_issues также укажи related_messages  
+    3. Включай полный текст сообщения, точную дату и автора (если известен)
+    4. Если один автор упоминал проблему несколько раз - включай все его сообщения
+    5. Анализируй настроения и проблемы жителей согласно указанным критериям"""
             
-            # Запрос к OpenAI
-            response = await self.client.chat.completions.create(
-                model="gpt-4",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                temperature=0.7,
-                max_tokens=2000
+            logger.info("📤 Sending community analysis request to OpenAI...")
+            
+            # Запрос к OpenAI с таймаутом
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=3000  # Увеличиваем лимит токенов для related_messages
+                ),
+                timeout=120.0
             )
+            
+            logger.info("✅ Received community analysis response from OpenAI")
             
             # Парсим ответ
             result = self._parse_community_response(response.choices[0].message.content)
             
-            logger.info(f"Community sentiment analysis completed for {group_name}")
+            logger.info("✅ Community sentiment analysis completed successfully")
             return result
             
-        except Exception as e:
-            logger.error(f"Error in community sentiment analysis: {str(e)}")
+        except asyncio.TimeoutError:
+            logger.error("⏰ OpenAI request timed out for community analysis")
             return self._get_community_fallback_result()
+        except Exception as e:
+            logger.error(f"💥 Error in community sentiment analysis: {str(e)}")
+            return self._get_community_fallback_result()
+        
 
     def _get_community_fallback_result(self) -> Dict[str, Any]:
-        """Fallback для анализа сообщества"""
+        """Fallback результат для анализа сообщества с related_messages"""
         return {
             "sentiment_summary": {
-                "overall_mood": "mock data",
-                "satisfaction_score": 00,
-                "complaint_level": "mock data"
+                "overall_mood": "анализ недоступен",
+                "satisfaction_score": 0,
+                "complaint_level": "неопределен"
             },
             "main_issues": [
-                {"category": "ЖКХ", "issue": "mock data", "frequency": 1}
+                {
+                    "category": "Техническая", 
+                    "issue": "Анализ временно недоступен", 
+                    "frequency": 1,
+                    "related_messages": [
+                        {
+                            "text": "Анализ не может быть выполнен в данный момент",
+                            "date": datetime.now().isoformat(),
+                            "author": "Система"
+                        }
+                    ]
+                }
             ],
             "service_quality": {
-                "управляющая_компания": 00,
-                "коммунальные_службы": 00,
-                "уборка": 00,
-                "безопасность": 00
+                "управляющая_компания": 0,
+                "коммунальные_службы": 0,
+                "уборка": 0,
+                "безопасность": 0
             },
-            "improvement_suggestions": ["mock data"],
-            "key_topics": ["общие вопросы"],
-            "urgent_issues": []
+            "improvement_suggestions": ["Попробуйте анализ позже"],
+            "key_topics": ["техническая проблема"],
+            "urgent_issues": [
+                {
+                    "issue": "Система анализа недоступна",
+                    "related_messages": [
+                        {
+                            "text": "Сервис анализа временно недоступен",
+                            "date": datetime.now().isoformat(),
+                            "author": "Система"
+                        }
+                    ]
+                }
+            ]
         }
+
+
+    def _validate_community_structure(self, result: Dict[str, Any]) -> bool:
+        """Валидация структуры результата анализа сообщества с related_messages"""
+        try:
+            # Проверяем основные ключи
+            required_keys = ['sentiment_summary', 'main_issues', 'service_quality', 'improvement_suggestions', 'key_topics', 'urgent_issues']
+            
+            if not all(key in result for key in required_keys):
+                logger.warning(f"❌ Missing required keys in community analysis. Expected: {required_keys}")
+                return False
+            
+            # Проверяем структуру sentiment_summary
+            sentiment_summary = result.get('sentiment_summary', {})
+            sentiment_required = ['overall_mood', 'satisfaction_score', 'complaint_level']
+            if not all(key in sentiment_summary for key in sentiment_required):
+                logger.warning(f"❌ Invalid sentiment_summary structure")
+                return False
+            
+            # Проверяем что main_issues это список
+            main_issues = result.get('main_issues', [])
+            if not isinstance(main_issues, list):
+                logger.warning("❌ main_issues should be a list")
+                return False
+            
+            # Проверяем структуру каждой проблемы в main_issues
+            for issue in main_issues:
+                if not isinstance(issue, dict):
+                    logger.warning("❌ Each main issue should be a dictionary")
+                    return False
+                
+                # Проверяем обязательные поля
+                issue_required = ['category', 'issue', 'frequency']
+                if not all(key in issue for key in issue_required):
+                    logger.warning(f"❌ Issue missing required fields: {issue_required}")
+                    return False
+                
+                # Проверяем related_messages (опционально, но если есть - должно быть списком)
+                if 'related_messages' in issue:
+                    if not isinstance(issue['related_messages'], list):
+                        logger.warning("❌ related_messages should be a list")
+                        return False
+                    
+                    # Проверяем структуру каждого сообщения
+                    for msg in issue['related_messages']:
+                        if not isinstance(msg, dict):
+                            logger.warning("❌ Each related message should be a dictionary")
+                            return False
+                        
+                        msg_required = ['text', 'date']
+                        if not all(key in msg for key in msg_required):
+                            logger.warning(f"❌ Related message missing required fields: {msg_required}")
+                            return False
+            
+            # Проверяем структуру urgent_issues
+            urgent_issues = result.get('urgent_issues', [])
+            if not isinstance(urgent_issues, list):
+                logger.warning("❌ urgent_issues should be a list")
+                return False
+            
+            # Проверяем структуру каждой срочной проблемы
+            for urgent in urgent_issues:
+                if isinstance(urgent, str):
+                    # Старый формат - просто строки, пропускаем
+                    continue
+                elif isinstance(urgent, dict):
+                    # Новый формат - с related_messages
+                    if 'issue' not in urgent:
+                        logger.warning("❌ Urgent issue missing 'issue' field")
+                        return False
+                    
+                    if 'related_messages' in urgent:
+                        if not isinstance(urgent['related_messages'], list):
+                            logger.warning("❌ urgent issue related_messages should be a list")
+                            return False
+            
+            # Проверяем структуру service_quality
+            service_quality = result.get('service_quality', {})
+            if not isinstance(service_quality, dict):
+                logger.warning("❌ service_quality should be a dictionary")
+                return False
+            
+            logger.info("✅ Community analysis result structure is valid")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error validating community analysis structure: {e}")
+            return False
     
     def _parse_community_response(self, response_text: str) -> Dict[str, Any]:
         """Парсинг ответа от OpenAI для анализа сообщества"""
