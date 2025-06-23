@@ -58,7 +58,15 @@ class OpenAIService:
             
             # Парсим ответ
             result = self._parse_openai_response(response.choices[0].message.content)
-            
+
+
+            if 'main_issues' in result and result['main_issues']:
+                result['main_issues'] = self._filter_significant_issues(
+                    result['main_issues'], 
+                    len(messages),
+                    min_percentage=7.0
+                )
+
             logger.info(f"Successfully analyzed {len(messages)} messages for group {group_name}")
             return result
             
@@ -374,7 +382,7 @@ class OpenAIService:
                     temperature=0.7,
                     max_tokens=3000  # Увеличиваем лимит токенов для related_messages
                 ),
-                timeout=120.0
+                timeout=240.0
             )
             
             logger.info("✅ Received community analysis response from OpenAI")
