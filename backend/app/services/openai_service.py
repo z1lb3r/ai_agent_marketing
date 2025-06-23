@@ -592,5 +592,49 @@ class OpenAIService:
         except Exception as e:
             logger.error(f"Error validating community analysis structure: {e}")
             return False
+        
+    def _filter_significant_issues(
+        self, 
+        issues: List[Dict[str, Any]], 
+        total_messages: int, 
+        min_percentage: float = 7.0
+    ) -> List[Dict[str, Any]]:
+        """
+        Фильтрация значимых проблем по правилу минимального процента
+        
+        Args:
+            issues: Список проблем от OpenAI
+            total_messages: Общее количество проанализированных сообщений
+            min_percentage: Минимальный процент сообщений для значимой проблемы (по умолчанию 7%)
+            
+        Returns:
+            Отфильтрованный список значимых проблем
+        """
+        if not issues or total_messages == 0:
+            return issues
+        
+        filtered_issues = []
+        
+        logger.info(f"🔍 Фильтрация проблем: требуется минимум {min_percentage}% от {total_messages} сообщений")
+        
+        for issue in issues:
+            # Считаем реальное количество related_messages
+            related_messages = issue.get('related_messages', [])
+            related_count = len(related_messages)
+            
+            # Вычисляем процент
+            percentage = (related_count / total_messages) * 100 if total_messages > 0 else 0
+            
+            logger.info(f"📊 Проблема '{issue.get('issue', 'Unknown')}': {related_count}/{total_messages} = {percentage:.1f}%")
+            
+            if percentage >= min_percentage:
+                filtered_issues.append(issue)
+                logger.info(f"✅ Оставляем проблему (>= {min_percentage}%)")
+            else:
+                logger.info(f"❌ Убираем проблему как незначительную (< {min_percentage}%)")
+        
+        logger.info(f"🎯 Результат фильтрации: {len(filtered_issues)} из {len(issues)} проблем оставлено")
+        
+        return filtered_issues
 
 
