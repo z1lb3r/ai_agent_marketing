@@ -71,33 +71,10 @@ export const CommunityAnalysisResults: React.FC<CommunityAnalysisResultsProps> =
     }
   };
 
-  // Собираем ВСЕ проблемы в один список (как раньше, но теперь они кликабельные)
+  // ИСПРАВЛЕНО: Показываем ТОЛЬКО отфильтрованные main_issues
   const allIssues: Issue[] = [
-    ...(results.main_issues || []),
-    ...(results.urgent_issues || []).map((urgent: any) => {
-      // Обрабатываем разные форматы urgent_issues
-      if (typeof urgent === 'string') {
-        return {
-          category: "Срочное",
-          issue: urgent,
-          frequency: 1,
-          related_messages: []
-        };
-      } else {
-        return {
-          category: "Срочное",
-          issue: urgent.issue || urgent,
-          frequency: 1,
-          related_messages: urgent.related_messages || []
-        };
-      }
-    }),
-    ...(results.key_topics || []).map((topic: string) => ({
-      category: "Общее",
-      issue: topic,
-      frequency: 1,
-      related_messages: []
-    }))
+    ...(results.main_issues || [])
+    // urgent_issues и key_topics убраны - они не проходят фильтрацию 7%
   ];
 
   return (
@@ -157,7 +134,7 @@ export const CommunityAnalysisResults: React.FC<CommunityAnalysisResultsProps> =
               </div>
             </div>
 
-            {/* ОСНОВНЫЕ ПРОБЛЕМЫ - ТЕПЕРЬ КЛИКАБЕЛЬНЫЕ */}
+            {/* ОСНОВНЫЕ ПРОБЛЕМЫ - ТОЛЬКО ОТФИЛЬТРОВАННЫЕ */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium mb-4">
                 Основные Проблемы
@@ -202,7 +179,7 @@ export const CommunityAnalysisResults: React.FC<CommunityAnalysisResultsProps> =
               )}
             </div>
 
-            {/* Качество услуг - ОСТАВЛЯЕМ */}
+            {/* Качество услуг */}
             <div className="bg-white rounded-lg shadow p-6">
               <h3 className="text-lg font-medium mb-4">Оценка Качества Услуг</h3>
               
@@ -222,24 +199,62 @@ export const CommunityAnalysisResults: React.FC<CommunityAnalysisResultsProps> =
                           score >= 40 ? 'bg-yellow-500' : 'bg-red-500'
                         }`}
                         style={{ width: `${score}%` }}
-                      />
+                      ></div>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
+
+            {/* Рекомендации по улучшению */}
+            {results.improvement_suggestions && results.improvement_suggestions.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Рекомендации по улучшению</h3>
+                
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                  <ul className="space-y-3">
+                    {results.improvement_suggestions.map((suggestion: string, index: number) => (
+                      <li key={index} className="flex">
+                        <div className="flex-shrink-0 mr-3">
+                          <MessageSquare className="h-5 w-5 text-blue-600" />
+                        </div>
+                        <p className="text-gray-700">{suggestion}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+
+            {/* Ключевые темы отдельно (не как проблемы) */}
+            {results.key_topics && results.key_topics.length > 0 && (
+              <div className="bg-white rounded-lg shadow p-6">
+                <h3 className="text-lg font-medium mb-4">Ключевые темы обсуждения</h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {results.key_topics.map((topic: string, index: number) => (
+                    <div key={index} className="flex items-center p-3 bg-blue-50 rounded-lg">
+                      <div className="p-2 bg-blue-100 rounded-full mr-3">
+                        <MessageSquare className="h-4 w-4 text-blue-600" />
+                      </div>
+                      <span className="text-blue-800 font-medium">{topic}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ПОП-АП С СООБЩЕНИЯМИ */}
+      {/* Модальное окно с сообщениями */}
       {showMessagesModal && selectedIssue && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 z-60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-60 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[80vh] overflow-y-auto">
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
               <div>
-                <h3 className="text-lg font-bold text-gray-900">Сообщения по проблеме:</h3>
-                <p className="text-sm text-gray-600">"{selectedIssue.issue}"</p>
+                <h3 className="text-lg font-bold text-gray-900">Сообщения по проблеме</h3>
+                <p className="text-sm text-gray-600">{selectedIssue.issue}</p>
               </div>
               <button
                 onClick={() => setShowMessagesModal(false)}
@@ -248,28 +263,23 @@ export const CommunityAnalysisResults: React.FC<CommunityAnalysisResultsProps> =
                 <X className="h-6 w-6" />
               </button>
             </div>
-            
+
             <div className="p-6">
-              {selectedIssue.related_messages && selectedIssue.related_messages.length > 0 ? (
-                <div className="space-y-4">
-                  {selectedIssue.related_messages.map((message, index) => (
-                    <div key={index} className="border border-gray-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center text-sm text-gray-500">
-                          <MessageSquare className="h-4 w-4 mr-1" />
-                          <span>📅 {formatDate(message.date)}</span>
-                          {message.author && (
-                            <span className="ml-3">👤 {message.author}</span>
-                          )}
-                        </div>
-                      </div>
-                      <p className="text-gray-800 leading-relaxed">{message.text}</p>
+              <div className="space-y-4">
+                {selectedIssue.related_messages?.map((message: RelatedMessage, index: number) => (
+                  <div key={index} className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-sm font-medium text-gray-600">
+                        {message.author || 'Аноним'}
+                      </span>
+                      <span className="text-xs text-gray-500">
+                        {formatDate(message.date)}
+                      </span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-500 text-center py-8">Сообщения не найдены</p>
-              )}
+                    <p className="text-gray-800">{message.text}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
