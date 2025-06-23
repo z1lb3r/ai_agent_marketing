@@ -4,7 +4,7 @@ from typing import List, Dict, Any, Optional
 from ...services.telegram_service import TelegramService
 from ...core.database import supabase_client
 from ...core.config import settings
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from ...services.openai_service import OpenAIService
 import logging
 import traceback
@@ -358,7 +358,7 @@ async def analyze_group(
         
         # Добавляем метаданные
         analysis_result.update({
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "prompt": prompt,
             "analyzed_moderators": moderators,
             "messages_analyzed": len(messages),
@@ -1279,7 +1279,7 @@ async def analyze_community_sentiment(
     group_id: str,
     analysis_params: dict = Body(...),
 ):
-    """Анализ настроений жителей и проблем ЖКХ"""
+    """Анализ настроений жителей и проблем ЖКХ с поддержкой days_back"""
     try:
         logger.info(f"🚀 Starting community sentiment analysis for group {group_id}")
         
@@ -1301,55 +1301,21 @@ async def analyze_community_sentiment(
         
         logger.info(f"📱 Fetching messages from Telegram group: {telegram_group_id}")
         
-        # БЕЗОПАСНЫЙ способ: НЕ передаем days_back, получаем фиксированное количество
+        # БЕЗОПАСНЫЙ вызов с days_back (основан на рабочей версии)
         messages = await telegram_service.get_group_messages(
             telegram_group_id, 
-            limit=500,  # Фиксированное количество (как в других эндпоинтах)
-            get_users=False
-            # НЕ передаем days_back - остается None по умолчанию!
+            limit=1000,           # Увеличиваем лимит, чтобы захватить достаточно сообщений
+            days_back=days_back,  # ПЕРЕДАЕМ days_back в безопасный метод
+            get_users=False       # Не нужна информация о пользователях
         )
-        
-        if not messages:
-            logger.warning("❌ No messages found for analysis")
-            raise HTTPException(status_code=400, detail="No messages found for analysis")
         
         logger.info(f"✅ Retrieved {len(messages)} total messages")
         
-        # ФИЛЬТРУЕМ по дате УЖЕ ЗДЕСЬ (безопасно!)
-        if days_back and days_back > 0:
-            from datetime import datetime, timedelta
-            
-            # Вычисляем дату отсечки
-            cutoff_date = datetime.now() - timedelta(days=days_back)
-            logger.info(f"🔍 Filtering messages newer than {cutoff_date.strftime('%Y-%m-%d')}")
-            
-            # Фильтруем сообщения по дате
-            filtered_messages = []
-            for msg in messages:
-                try:
-                    # Парсим дату сообщения
-                    msg_date_str = msg.get('date', '')
-                    if msg_date_str:
-                        # Убираем Z и парсим
-                        clean_date_str = msg_date_str.replace('Z', '+00:00')
-                        msg_date = datetime.fromisoformat(clean_date_str)
-                        
-                        # Проверяем что сообщение в нужном периоде
-                        if msg_date >= cutoff_date:
-                            filtered_messages.append(msg)
-                except Exception as date_error:
-                    logger.warning(f"Error parsing date for message: {date_error}")
-                    # Если не можем распарсить дату - включаем сообщение
-                    filtered_messages.append(msg)
-            
-            messages = filtered_messages
-            logger.info(f"🔍 After filtering: {len(messages)} messages for last {days_back} days")
-        
         if not messages:
-            logger.warning("❌ No messages found in specified time period")
+            logger.warning("No messages found in specified time period")
             raise HTTPException(status_code=400, detail=f"No messages found for last {days_back} days")
         
-        # Анализ настроений сообщества (как было)
+        # Анализ настроений сообщества (как в рабочей версии)
         logger.info("🤖 Starting OpenAI analysis...")
         
         try:
@@ -1380,25 +1346,25 @@ async def analyze_community_sentiment(
                 "urgent_issues": ["Система анализа недоступна"]
             }
         
-        # Добавляем метаданные
+        # Добавляем метаданные (как в рабочей версии)
         analysis_result.update({
             "timestamp": datetime.now().isoformat(),
             "prompt": prompt,
             "messages_analyzed": len(messages),
-            "days_analyzed": days_back,
+            "days_analyzed": days_back,  # ДОБАВЛЯЕМ информацию о количестве дней
             "group_name": group_name,
             "analysis_type": "community_sentiment"
         })
         
         logger.info("💾 Saving analysis to database...")
         
-        # Сохраняем в базу
+        # Сохраняем в базу (как в рабочей версии)
         analysis_report = {
             "group_id": group_id,
             "type": "community_sentiment",
             "results": analysis_result,
             "prompt": prompt,
-            "days_analyzed": days_back
+            "days_analyzed": days_back  # СОХРАНЯЕМ days_back в БД
         }
         
         try:

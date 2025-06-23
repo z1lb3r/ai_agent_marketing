@@ -3,7 +3,7 @@ from telethon import TelegramClient, types
 from telethon.sessions import StringSession
 from telethon.tl.types import Message, User, Channel, Chat
 from typing import List, Dict, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 import uuid
 import logging
@@ -163,67 +163,137 @@ class TelegramService:
     async def get_group_messages(
         self, 
         group_id: str, 
-        limit: int = 100, 
-        save_to_db: bool = False, 
-        get_users: bool = False,
-        days_back: Optional[int] = None  # Параметр оставляем, но ИГНОРИРУЕМ
+        limit: int = 100,
+        offset_date: Optional[datetime] = None,
+        include_replies: bool = True,
+        get_users: bool = True,
+        save_to_db: bool = False,
+        days_back: Optional[int] = None  # НОВЫЙ параметр для фильтрации по дням
     ) -> List[Dict[str, Any]]:
         """
-        Получить сообщения из группы (ПРОСТАЯ ВЕРСИЯ без days_back)
+        БЕЗОПАСНЫЙ метод получения сообщений из группы
+        Основан на рабочей версии + логика days_back из daysback.docx
         """
-        async def operation():
-            entity = await self.get_entity(group_id)
+        try:
+            # Подключаемся если нужно (как в рабочей версии)
+            await self.ensure_connected()
+            
+            # Получаем entity напрямую (БЕЗ execute_telegram_operation!)
+            try:
+                if str(group_id).lstrip('-').isdigit():
+                    entity = await self.client.get_entity(int(group_id))
+                else:
+                    entity = await self.client.get_entity(group_id)
+            except Exception as e:
+                logger.error(f"Failed to get entity for group {group_id}: {e}")
+                return []
+            
+            # Логика фильтрации по дням (из daysback.docx)
+            cutoff_date = None
+            if days_back is not None and days_back > 0:
+                cutoff_date = datetime.now(timezone.utc) - timedelta(days=days_back)
+                logger.info(f"Getting messages newer than {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')} (last {days_back} days)")
+            else:
+                logger.info(f"Getting last {limit} messages (no date filtering)")
+            
             messages = []
+            users_cache = {}
             
-            logger.info(f"Getting {limit} messages from group {group_id} (simple mode)")
-            
-            # ПРОСТОЙ вызов - как было раньше (работало!)
-            async for message in self.client.iter_messages(entity, 100):
-                if isinstance(message, Message):
-                    # Получаем информацию об отправителе
-                    sender_info = {}
-                    if get_users and message.sender_id:
-                        try:
-                            sender = await message.get_sender()
-                            if sender:
-                                sender_info = {
-                                    'id': str(sender.id),
-                                    'username': getattr(sender, 'username', None),
-                                    'first_name': getattr(sender, 'first_name', None),
-                                    'last_name': getattr(sender, 'last_name', None),
-                                    'is_bot': getattr(sender, 'bot', False)
-                                }
-                        except Exception as e:
-                            logger.warning(f"Error getting sender info: {e}")
-                    
-                    # Формируем объект сообщения
-                    msg = {
+            # Основной цикл получения сообщений (АДАПТИРОВАННЫЙ из daysback.docx для Telethon)
+            async for message in self.client.iter_messages(entity, limit=limit):
+                # КЛЮЧЕВАЯ ЛОГИКА: Если сообщение старше cutoff_date - останавливаемся
+                if cutoff_date is not None and message.date < cutoff_date:
+                    logger.info(f"Reached message from {message.date.strftime('%Y-%m-%d %H:%M:%S')} - stopping (older than {days_back} days)")
+                    break
+                
+                # Обрабатываем сообщение (как в рабочей версии)
+                try:
+                    msg_data = {
                         'message_id': str(message.id),
-                        'sender_id': str(message.sender_id) if message.sender_id else None,
-                        'sender': sender_info if sender_info else None,
                         'text': message.text or "",
                         'date': message.date.isoformat(),
-                        'is_reply': bool(message.is_reply),
+                        'sender_id': str(message.sender_id) if message.sender_id else None,
+                        'is_reply': message.is_reply,
                         'reply_to_message_id': str(message.reply_to_msg_id) if message.reply_to_msg_id else None,
-                        'has_media': bool(message.media)
+                        'forward_from': None,
+                        'media_type': None,
+                        'edit_date': message.edit_date.isoformat() if message.edit_date else None,
+                        'views': getattr(message, 'views', None),
+                        'user_info': None
                     }
                     
-                    messages.append(msg)
+                    # Информация о медиа
+                    if message.media:
+                        if hasattr(message.media, 'photo'):
+                            msg_data['media_type'] = 'photo'
+                        elif hasattr(message.media, 'document'):
+                            msg_data['media_type'] = 'document'
+                        elif hasattr(message.media, 'video'):
+                            msg_data['media_type'] = 'video'
+                        else:
+                            msg_data['media_type'] = 'other'
                     
-                    # Сохраняем в базу если требуется
-                    if save_to_db:
-                        await self._save_message_to_db(group_id, msg)
+                    # Информация о пересылке
+                    if message.forward:
+                        msg_data['forward_from'] = {
+                            'from_id': str(message.forward.from_id) if message.forward.from_id else None,
+                            'from_name': getattr(message.forward, 'from_name', None),
+                            'date': message.forward.date.isoformat() if message.forward.date else None
+                        }
+                    
+                    # Получаем информацию о пользователе (если нужно)
+                    if get_users and message.sender_id:
+                        if message.sender_id not in users_cache:
+                            try:
+                                user = await self.client.get_entity(message.sender_id)
+                                if user:
+                                    users_cache[message.sender_id] = {
+                                        'telegram_id': str(user.id),
+                                        'username': getattr(user, 'username', None),
+                                        'first_name': getattr(user, 'first_name', None),
+                                        'last_name': getattr(user, 'last_name', None),
+                                        'is_bot': getattr(user, 'bot', False)
+                                    }
+                                else:
+                                    users_cache[message.sender_id] = None
+                            except Exception as user_error:
+                                logger.warning(f"Failed to get user info for {message.sender_id}: {user_error}")
+                                users_cache[message.sender_id] = None
+                        
+                        msg_data['user_info'] = users_cache.get(message.sender_id)
+                    
+                    messages.append(msg_data)
+                    
+                except Exception as message_error:
+                    logger.warning(f"Failed to process message {message.id}: {message_error}")
+                    continue
             
-            logger.info(f"Retrieved {len(messages)} messages from group {group_id}")
+            # Финальная статистика
+            if cutoff_date:
+                logger.info(f"Retrieved {len(messages)} messages for last {days_back} days (newer than {cutoff_date.strftime('%Y-%m-%d %H:%M:%S')})")
+            else:
+                logger.info(f"Retrieved {len(messages)} latest messages (limit={limit})")
+            
+            # Сохранение в БД (если нужно) - как в рабочей версии
+            if save_to_db and messages:
+                try:
+                    for msg in messages:
+                        msg_for_db = msg.copy()
+                        msg_for_db['group_id'] = group_id
+                        msg_for_db['created_at'] = datetime.now().isoformat()
+                        
+                        supabase_client.table('telegram_messages').upsert(msg_for_db).execute()
+                    
+                    logger.info(f"Saved {len(messages)} messages to database")
+                except Exception as db_error:
+                    logger.warning(f"Failed to save messages to database: {db_error}")
+            
             return messages
-        
-        try:
-            return await self.execute_telegram_operation(operation)
+            
         except Exception as e:
-            logger.error(f"Error retrieving messages from group {group_id}: {e}")
-            raise
-
-
+            logger.error(f"Error getting messages from group {group_id}: {e}")
+            return []
+    
     async def _save_message_to_db(self, group_id: str, message: Dict[str, Any]):
         """Сохранить сообщение в базу данных"""
         try:
@@ -282,7 +352,8 @@ class TelegramService:
                         'is_megagroup': getattr(entity, 'megagroup', False)
                     })
                 
-            
+                # Сохраняем или обновляем информацию в базе данных
+                await self._save_group_to_db(group_info)
                 
                 logger.info(f"Retrieved info for group {group_id}")
                 return group_info
