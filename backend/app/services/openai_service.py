@@ -390,6 +390,14 @@ class OpenAIService:
             # Парсим ответ
             result = self._parse_community_response(response.choices[0].message.content)
             
+            # Применяем фильтрацию 7% к main_issues
+            if 'main_issues' in result and result['main_issues']:
+                result['main_issues'] = self._filter_significant_issues(
+                    result['main_issues'], 
+                    len(messages),
+                    min_percentage=7.0
+                )
+            
             logger.info("✅ Community sentiment analysis completed successfully")
             return result
             
@@ -644,5 +652,3 @@ class OpenAIService:
         logger.info(f"🎯 Результат фильтрации: {len(filtered_issues)} из {len(issues)} проблем оставлено")
         
         return filtered_issues
-
-
