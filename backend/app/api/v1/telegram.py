@@ -1326,7 +1326,7 @@ async def analyze_community_sentiment(
                     prompt=prompt,
                     group_name=group_name
                 ),
-                timeout=60.0
+                timeout=300.0
             )
             logger.info("✅ OpenAI analysis completed successfully")
             
