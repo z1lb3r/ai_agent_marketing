@@ -652,3 +652,298 @@ class OpenAIService:
         logger.info(f"🎯 Результат фильтрации: {len(filtered_issues)} из {len(issues)} проблем оставлено")
         
         return filtered_issues
+    
+    async def analyze_posts_comments(
+        self,
+        comments: List[Dict[str, Any]],
+        posts_info: List[Dict[str, Any]],
+        prompt: str = None,
+        group_name: str = "Unknown"
+    ) -> Dict[str, Any]:
+        """
+        Анализ комментариев к постам с фокусом на реакции и обратную связь
+        
+        Args:
+            comments: Список комментариев к постам
+            posts_info: Информация о постах
+            prompt: Критерии анализа от пользователя
+            group_name: Название группы
+            
+        Returns:
+            Результат анализа комментариев к постам
+        """
+        try:
+            logger.info(f"🔗 Starting posts comments analysis for group: {group_name}")
+            
+            # Проверяем входные данные
+            if not comments:
+                logger.warning("❌ No comments provided for posts analysis")
+                return self._get_posts_fallback_result()
+            
+            # Системный промпт для анализа комментариев к постам
+            system_prompt = """Ты - эксперт по анализу общественного мнения и реакций на публикации.
+
+    Анализируй комментарии к постам для выявления:
+
+    1. Общие реакции и настроения (поддержка/критика/нейтралитет)
+    2. Основные темы обсуждения в комментариях  
+    3. Конкретные проблемы и предложения от комментаторов
+    4. Эмоциональный тон реакций
+    5. Наиболее обсуждаемые аспекты постов
+
+    ВАЖНО: Для каждой найденной темы или проблемы укажи конкретные комментарии, которые привели к этому выводу.
+
+    Ответ должен быть в формате JSON:
+
+    {
+    "sentiment_summary": {
+        "overall_mood": "общее настроение комментариев (позитивное/нейтральное/негативное)",
+        "satisfaction_score": число от 0 до 100,
+        "complaint_level": "уровень недовольства (низкий/средний/высокий)"
+    },
+    "main_issues": [
+        {
+        "category": "категория проблемы",
+        "issue": "описание проблемы или темы",
+        "frequency": число упоминаний,
+        "related_messages": [
+            {
+            "text": "полный текст комментария",
+            "date": "дата комментария",
+            "author": "автор (если известен)",
+            "post_link": "ссылка на пост"
+            }
+        ]
+        }
+    ],
+    "post_reactions": {
+        "положительные": число позитивных реакций,
+        "нейтральные": число нейтральных реакций,  
+        "негативные": число негативных реакций
+    },
+    "improvement_suggestions": ["список предложений по улучшению"],
+    "key_topics": ["основные темы обсуждения"],
+    "urgent_issues": [
+        {
+        "issue": "срочная проблема требующая внимания",
+        "related_messages": [
+            {
+            "text": "комментарий об срочной проблеме",
+            "date": "дата", 
+            "author": "автор",
+            "post_link": "ссылка на пост"
+            }
+        ]
+        }
+    ]
+    }"""
+
+            # Подготавливаем данные комментариев
+            comment_texts = []
+            for comment in comments[:50]:  # Ограничиваем для экономии токенов
+                author = ""
+                if comment.get('author'):
+                    author_info = comment['author']
+                    if author_info.get('username'):
+                        author = f"@{author_info['username']}"
+                    elif author_info.get('first_name'):
+                        author = author_info.get('first_name', '')
+                
+                comment_texts.append({
+                    'text': comment['text'][:500],  # Ограничиваем длину
+                    'date': comment.get('date', ''),
+                    'author': author,
+                    'post_link': comment.get('post_link', '')
+                })
+            
+            # Информация о постах
+            posts_summary = []
+            for post_info in posts_info:
+                post_data = post_info.get('post_info', {})
+                posts_summary.append({
+                    'link': post_data.get('link', ''),
+                    'message_id': post_data.get('message_id', ''),
+                    'comments_count': post_info.get('comments_count', 0)
+                })
+            
+            # Пользовательский промпт
+            if not prompt or not prompt.strip():
+                prompt = "Проанализируй реакции и комментарии к постам, выяви основные темы и настроения"
+                
+            user_prompt = f"""
+    ГРУППА: {group_name}
+    ЗАДАЧА: {prompt}
+
+    АНАЛИЗИРУЕМЫЕ ПОСТЫ ({len(posts_summary)} шт.):
+    """
+            
+            for i, post in enumerate(posts_summary):
+                user_prompt += f"\n{i+1}. {post['link']} ({post['comments_count']} комментариев)"
+            
+            user_prompt += f"""
+
+    КОММЕНТАРИИ К ПОСТАМ ({len(comment_texts)} шт.):
+    """
+            
+            # Добавляем комментарии
+            for i, comment in enumerate(comment_texts):
+                author_info = f" от {comment['author']}" if comment['author'] else ""
+                post_link = f" [Пост: {comment['post_link']}]" if comment['post_link'] else ""
+                user_prompt += f"\n{i+1}. [{comment['date']}]{author_info}{post_link}: {comment['text']}"
+            
+            user_prompt += """
+
+    ВАЖНЫЕ ИНСТРУКЦИИ:
+    1. Для каждой проблемы в main_issues укажи ВСЕ комментарии, которые привели к этому выводу
+    2. Для urgent_issues также укажи related_messages с полными комментариями
+    3. Включай полный текст комментария, дату, автора и ссылку на пост
+    4. Анализируй именно реакции на посты, а не общие настроения группы
+    5. Определи какие посты вызвали больше всего дискуссий"""
+            
+            logger.info("📤 Sending posts comments analysis request to OpenAI...")
+            
+            # Запрос к OpenAI с таймаутом
+            response = await asyncio.wait_for(
+                self.client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.7,
+                    max_tokens=3500  # Увеличиваем для related_messages
+                ),
+                timeout=240.0
+            )
+            
+            logger.info("✅ Received posts comments analysis response from OpenAI")
+            
+            # Парсим ответ
+            result = self._parse_posts_response(response.choices[0].message.content)
+            
+            # Применяем фильтрацию 7% к main_issues
+            if 'main_issues' in result and result['main_issues']:
+                result['main_issues'] = self._filter_significant_issues(
+                    result['main_issues'], 
+                    len(comments),
+                    min_percentage=7.0
+                )
+            
+            logger.info("✅ Posts comments analysis completed successfully")
+            return result
+            
+        except asyncio.TimeoutError:
+            logger.error("⏰ OpenAI request timed out for posts comments analysis")
+            return self._get_posts_fallback_result()
+        except Exception as e:
+            logger.error(f"💥 Error in posts comments analysis: {str(e)}")
+            return self._get_posts_fallback_result()
+
+
+    def _parse_posts_response(self, response_text: str) -> Dict[str, Any]:
+        """Парсинг ответа от OpenAI для анализа комментариев к постам"""
+        try:
+            # Ищем JSON в ответе
+            start_idx = response_text.find('{')
+            end_idx = response_text.rfind('}') + 1
+            
+            if start_idx != -1 and end_idx != 0:
+                json_str = response_text[start_idx:end_idx]
+                result = json.loads(json_str)
+                
+                # Валидируем структуру для анализа постов
+                if self._validate_posts_structure(result):
+                    logger.info("Successfully parsed posts comments analysis response")
+                    return result
+            
+            logger.warning("Failed to parse posts comments analysis response, using fallback")
+            return self._get_posts_fallback_result()
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error in posts comments analysis response: {e}")
+            return self._get_posts_fallback_result()
+        except Exception as e:
+            logger.error(f"Error parsing posts comments analysis response: {e}")
+            return self._get_posts_fallback_result()
+
+
+    def _validate_posts_structure(self, result: Dict[str, Any]) -> bool:
+        """Валидация структуры результата анализа комментариев к постам"""
+        try:
+            # Проверяем основные ключи
+            required_keys = ['sentiment_summary', 'main_issues', 'post_reactions', 'improvement_suggestions', 'key_topics', 'urgent_issues']
+            
+            if not all(key in result for key in required_keys):
+                logger.warning(f"Missing required keys in posts analysis result. Expected: {required_keys}, Got: {list(result.keys())}")
+                return False
+            
+            # Проверяем структуру sentiment_summary
+            sentiment_summary = result.get('sentiment_summary', {})
+            sentiment_required = ['overall_mood', 'satisfaction_score', 'complaint_level']
+            if not all(key in sentiment_summary for key in sentiment_required):
+                logger.warning(f"Invalid sentiment_summary structure. Expected: {sentiment_required}, Got: {list(sentiment_summary.keys())}")
+                return False
+            
+            # Проверяем что main_issues это список
+            if not isinstance(result.get('main_issues', []), list):
+                logger.warning("main_issues should be a list")
+                return False
+            
+            # Проверяем структуру post_reactions
+            post_reactions = result.get('post_reactions', {})
+            if not isinstance(post_reactions, dict):
+                logger.warning("post_reactions should be a dictionary")
+                return False
+            
+            logger.info("Posts comments analysis result structure is valid")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error validating posts analysis structure: {e}")
+            return False
+
+
+    def _get_posts_fallback_result(self) -> Dict[str, Any]:
+        """Fallback результат для анализа комментариев к постам"""
+        return {
+            "sentiment_summary": {
+                "overall_mood": "анализ недоступен",
+                "satisfaction_score": 0,
+                "complaint_level": "неопределен"
+            },
+            "main_issues": [
+                {
+                    "category": "Техническая", 
+                    "issue": "Анализ временно недоступен", 
+                    "frequency": 1,
+                    "related_messages": [
+                        {
+                            "text": "Анализ не может быть выполнен в данный момент",
+                            "date": datetime.now().isoformat(),
+                            "author": "Система",
+                            "post_link": ""
+                        }
+                    ]
+                }
+            ],
+            "post_reactions": {
+                "положительные": 0,
+                "нейтральные": 0,
+                "негативные": 0
+            },
+            "improvement_suggestions": ["Попробуйте анализ позже"],
+            "key_topics": ["техническая проблема"],
+            "urgent_issues": [
+                {
+                    "issue": "Система анализа недоступна",
+                    "related_messages": [
+                        {
+                            "text": "Сервис анализа временно недоступен",
+                            "date": datetime.now().isoformat(),
+                            "author": "Система", 
+                            "post_link": ""
+                        }
+                    ]
+                }
+            ]
+        }

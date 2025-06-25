@@ -1382,3 +1382,124 @@ async def analyze_community_sentiment(
         logger.error(f"💥 Community analysis failed: {str(e)}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
+    
+
+@router.post("/groups/{group_id}/analyze-posts")
+async def analyze_posts_comments(
+    group_id: str,
+    analysis_params: dict = Body(...),
+):
+    """Анализ комментариев к постам"""
+    try:
+        logger.info(f"🔗 Starting posts comments analysis for group {group_id}")
+        
+        # Извлекаем параметры
+        prompt = analysis_params.get("prompt", "")
+        post_links = analysis_params.get("post_links", [])
+        
+        if not post_links:
+            raise HTTPException(status_code=400, detail="Не указаны ссылки на посты")
+        
+        if not isinstance(post_links, list):
+            raise HTTPException(status_code=400, detail="post_links должен быть массивом")
+        
+        # Проверяем группу
+        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group_check.data:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        group_data = group_check.data[0]
+        group_name = group_data.get("name", "Unknown")
+        
+        logger.info(f"📝 Parsing {len(post_links)} post links...")
+        
+        # Получаем комментарии к постам
+        try:
+            comments_data = await asyncio.wait_for(
+                telegram_service.get_multiple_posts_comments(
+                    post_links=post_links,
+                    limit_per_post=200  # Больше комментариев для лучшего анализа
+                ),
+                timeout=120.0  # 2 минуты на получение комментариев
+            )
+            logger.info(f"✅ Retrieved comments successfully")
+            
+        except asyncio.TimeoutError:
+            logger.error("⏰ Timeout getting comments from posts")
+            raise HTTPException(status_code=408, detail="Таймаут при получении комментариев")
+        
+        comments = comments_data.get('comments', [])
+        posts_info = comments_data.get('posts_info', [])
+        
+        if not comments:
+            raise HTTPException(status_code=400, detail="Не найдено комментариев к указанным постам")
+        
+        logger.info(f"🔍 Analyzing {len(comments)} comments with OpenAI...")
+        
+        # АНАЛИЗ комментариев через OpenAI
+        try:
+            analysis_result = await asyncio.wait_for(
+                openai_service.analyze_posts_comments(
+                    comments=comments,
+                    posts_info=posts_info,
+                    prompt=prompt,
+                    group_name=group_name
+                ),
+                timeout=300.0  # 5 минут для анализа
+            )
+            logger.info("✅ OpenAI analysis completed successfully")
+            
+        except asyncio.TimeoutError:
+            logger.error("⏰ OpenAI analysis timed out")
+            # Возвращаем fallback результат
+            analysis_result = {
+                "sentiment_summary": {
+                    "overall_mood": "анализ прерван",
+                    "satisfaction_score": 0,
+                    "complaint_level": "неопределен"
+                },
+                "main_issues": [{"category": "Техническая", "issue": "Анализ прерван по таймауту", "frequency": 1}],
+                "post_reactions": {"положительные": 0, "нейтральные": 0, "негативные": 0},
+                "improvement_suggestions": ["Попробуйте анализ с меньшим количеством постов"],
+                "key_topics": ["таймаут"],
+                "urgent_issues": ["Система анализа недоступна"]
+            }
+        
+        # Добавляем метаданные
+        analysis_result.update({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "prompt": prompt,
+            "comments_analyzed": len(comments),
+            "posts_analyzed": len(posts_info),
+            "post_links": post_links,
+            "group_name": group_name,
+            "analysis_type": "posts_comments"
+        })
+        
+        logger.info("💾 Saving analysis to database...")
+        
+        # Сохраняем в базу
+        analysis_report = {
+            "group_id": group_id,
+            "type": "posts_comments",
+            "results": analysis_result,
+            "prompt": prompt,
+            "post_links": post_links
+        }
+        
+        try:
+            supabase_client.table('analysis_reports').insert(analysis_report).execute()
+            logger.info("✅ Analysis saved to database")
+        except Exception as db_error:
+            logger.warning(f"⚠️ Failed to save to database: {db_error}")
+        
+        logger.info("🎉 Posts comments analysis completed successfully")
+        return {"status": "success", "result": analysis_result}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"💥 Posts comments analysis failed: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")

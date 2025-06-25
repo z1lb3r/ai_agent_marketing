@@ -7,6 +7,8 @@ from datetime import datetime, timedelta, timezone
 import asyncio
 import uuid
 import logging
+import re
+from urllib.parse import urlparse
 from ..core.config import settings
 from ..core.database import supabase_client
 
@@ -1042,5 +1044,236 @@ class TelegramService:
                 "timestamp": datetime.now().isoformat()
             }
         
- 
-   
+    
+    async def parse_post_links(self, post_links: List[str]) -> List[Dict[str, Any]]:
+        """
+        Парсинг ссылок на посты и получение их ID
+        
+        Args:
+            post_links: Список ссылок на посты (t.me/channel/123 или t.me/c/1234567890/456)
+            
+        Returns:
+            Список словарей с информацией о постах
+        """
+        parsed_posts = []
+        
+        for link in post_links:
+            try:
+                post_info = self._parse_telegram_post_link(link.strip())
+                if post_info:
+                    parsed_posts.append(post_info)
+                else:
+                    logger.warning(f"Failed to parse post link: {link}")
+            except Exception as e:
+                logger.error(f"Error parsing post link {link}: {e}")
+        
+        return parsed_posts  
+    
+
+    def _parse_telegram_post_link(self, link: str) -> Optional[Dict[str, Any]]:
+        """
+        Парсинг одной ссылки на пост Telegram
+        
+        Поддерживаемые форматы:
+        - https://t.me/channel_name/123
+        - https://t.me/c/1234567890/456
+        - t.me/channel_name/123
+        """
+        try:
+            # Убираем лишние пробелы и приводим к нижнему регистру
+            link = link.strip()
+            
+            # Добавляем https:// если отсутствует
+            if not link.startswith(('http://', 'https://')):
+                link = 'https://' + link
+            
+            parsed_url = urlparse(link)
+            
+            if parsed_url.netloc != 't.me':
+                return None
+            
+            path_parts = parsed_url.path.strip('/').split('/')
+            
+            if len(path_parts) < 2:
+                return None
+            
+            # Формат: /c/channel_id/message_id (приватные каналы)
+            if path_parts[0] == 'c' and len(path_parts) >= 3:
+                channel_id = f"-100{path_parts[1]}"  # Добавляем префикс для супергрупп
+                message_id = int(path_parts[2])
+                
+                return {
+                    'channel_id': channel_id,
+                    'message_id': message_id,
+                    'link': link,
+                    'is_private': True
+                }
+            
+            # Формат: /channel_name/message_id (публичные каналы)
+            elif len(path_parts) == 2:
+                channel_username = path_parts[0]
+                message_id = int(path_parts[1])
+                
+                return {
+                    'channel_username': channel_username,
+                    'message_id': message_id,
+                    'link': link,
+                    'is_private': False
+                }
+            
+            return None
+            
+        except (ValueError, IndexError) as e:
+            logger.error(f"Error parsing post link {link}: {e}")
+            return None
+    
+
+    async def get_post_comments(self, post_info: Dict[str, Any], limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Получить комментарии к посту
+        
+        Args:
+            post_info: Информация о посте из parse_post_links
+            limit: Максимальное количество комментариев
+            
+        Returns:
+            Список комментариев
+        """
+        async def operation():
+            try:
+                # Получаем entity канала/группы
+                if post_info['is_private']:
+                    entity = await self.client.get_entity(int(post_info['channel_id']))
+                else:
+                    entity = await self.client.get_entity(post_info['channel_username'])
+                
+                # Получаем сам пост
+                post_message = await self.client.get_messages(entity, ids=post_info['message_id'])
+                
+                if not post_message:
+                    logger.warning(f"Post {post_info['message_id']} not found")
+                    return []
+                
+                # Получаем комментарии (replies) к посту
+                comments = []
+                
+                # Проверяем есть ли комментарии у поста
+                if hasattr(post_message, 'replies') and post_message.replies:
+                    
+                    async for message in self.client.iter_messages(
+                        entity, 
+                        reply_to=post_info['message_id'],
+                        limit=limit
+                    ):
+                        if isinstance(message, Message) and message.text:
+                            # Получаем информацию об авторе комментария
+                            author_info = None
+                            if message.sender_id:
+                                try:
+                                    user = await self.client.get_entity(message.sender_id)
+                                    author_info = {
+                                        'id': str(user.id),
+                                        'username': getattr(user, 'username', None),
+                                        'first_name': getattr(user, 'first_name', None),
+                                        'last_name': getattr(user, 'last_name', None)
+                                    }
+                                except:
+                                    pass
+                            
+                            comment_data = {
+                                'message_id': str(message.id),
+                                'text': message.text,
+                                'date': message.date.isoformat(),
+                                'author': author_info,
+                                'post_link': post_info['link'],
+                                'post_message_id': str(post_info['message_id']),
+                                'has_media': bool(message.media),
+                                'is_reply': True,
+                                'reply_to_message_id': str(post_info['message_id'])
+                            }
+                            
+                            comments.append(comment_data)
+                
+                logger.info(f"Retrieved {len(comments)} comments for post {post_info['message_id']}")
+                return comments
+                
+            except Exception as e:
+                logger.error(f"Error getting comments for post {post_info}: {e}")
+                return []
+        
+        try:
+            return await self.execute_telegram_operation(operation)
+        except Exception as e:
+            logger.error(f"Failed to get comments for post {post_info}: {e}")
+            return []
+        
+    async def get_multiple_posts_comments(self, post_links: List[str], limit_per_post: int = 100) -> Dict[str, Any]:
+        """
+        Получить комментарии к нескольким постам
+        
+        Args:
+            post_links: Список ссылок на посты
+            limit_per_post: Максимальное количество комментариев на пост
+            
+        Returns:
+            Словарь с комментариями и метаинформацией
+        """
+        try:
+            # Парсим ссылки на посты
+            parsed_posts = await self.parse_post_links(post_links)
+            
+            if not parsed_posts:
+                return {
+                    'comments': [],
+                    'posts_info': [],
+                    'total_comments': 0,
+                    'processed_posts': 0
+                }
+            
+            all_comments = []
+            posts_info = []
+            
+            for post_info in parsed_posts:
+                try:
+                    # Получаем комментарии к каждому посту
+                    post_comments = await self.get_post_comments(post_info, limit_per_post)
+                    
+                    # Добавляем информацию о посте к каждому комментарию
+                    for comment in post_comments:
+                        comment['source_post'] = post_info
+                    
+                    all_comments.extend(post_comments)
+                    posts_info.append({
+                        'post_info': post_info,
+                        'comments_count': len(post_comments)
+                    })
+                    
+                    logger.info(f"Processed post {post_info['message_id']}: {len(post_comments)} comments")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing post {post_info}: {e}")
+                    posts_info.append({
+                        'post_info': post_info,
+                        'comments_count': 0,
+                        'error': str(e)
+                    })
+            
+            result = {
+                'comments': all_comments,
+                'posts_info': posts_info,
+                'total_comments': len(all_comments),
+                'processed_posts': len([p for p in posts_info if 'error' not in p])
+            }
+            
+            logger.info(f"Retrieved total {len(all_comments)} comments from {len(parsed_posts)} posts")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error getting multiple posts comments: {e}")
+            return {
+                'comments': [],
+                'posts_info': [],
+                'total_comments': 0,
+                'processed_posts': 0
+            }
+        

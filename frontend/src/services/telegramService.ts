@@ -1,4 +1,5 @@
-// frontend/src/services/telegramService.ts
+// frontend/src/services/telegramService.ts - ОБНОВЛЕННАЯ ВЕРСИЯ
+
 import { api } from './api';
 import { TelegramGroup, ModeratorMetrics, AnalysisReport } from '../types/telegram';
 
@@ -24,8 +25,27 @@ export const telegramService = {
     return response.data;
   },
 
+  // Анализ модераторов
   async analyzeGroup(groupId: string): Promise<AnalysisReport> {
     const response = await api.post(`/telegram/groups/${groupId}/analyze`);
+    return response.data;
+  },
+
+  // Анализ настроений сообщества
+  async analyzeCommunity(groupId: string, params: {
+    prompt: string;
+    days_back: number;
+  }): Promise<any> {
+    const response = await api.post(`/telegram/groups/${groupId}/analyze-community`, params);
+    return response.data;
+  },
+
+  // НОВЫЙ МЕТОД: Анализ комментариев к постам
+  async analyzePostsComments(groupId: string, params: {
+    prompt: string;
+    post_links: string[];
+  }): Promise<any> {
+    const response = await api.post(`/telegram/groups/${groupId}/analyze-posts`, params);
     return response.data;
   },
 
