@@ -1484,8 +1484,8 @@ async def analyze_posts_comments(
             "group_id": group_id,
             "type": "posts_comments",
             "results": analysis_result,
-            "prompt": prompt,
-            "post_links": post_links
+            "prompt": prompt
+            
         }
         
         try:

@@ -47,7 +47,7 @@ class OpenAIService:
             
             # Отправляем запрос к OpenAI
             response = await self.client.chat.completions.create(
-                model="gpt-4",
+                model="gpt-4.1-2025-04-14",
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
@@ -374,7 +374,7 @@ class OpenAIService:
             # Запрос к OpenAI с таймаутом
             response = await asyncio.wait_for(
                 self.client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4.1-2025-04-14",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -805,7 +805,7 @@ class OpenAIService:
             # Запрос к OpenAI с таймаутом
             response = await asyncio.wait_for(
                 self.client.chat.completions.create(
-                    model="gpt-4",
+                    model="gpt-4.1-2025-04-14",
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
@@ -843,27 +843,61 @@ class OpenAIService:
     def _parse_posts_response(self, response_text: str) -> Dict[str, Any]:
         """Парсинг ответа от OpenAI для анализа комментариев к постам"""
         try:
-            # Ищем JSON в ответе
+            logger.info("Parsing OpenAI response for posts analysis...")
+            
+            # Убираем лишние символы и пробелы
+            response_text = response_text.strip()
+            
+            # Пытаемся найти JSON блок разными способами
+            json_str = None
+            
+            # Способ 1: Ищем первый { и последний }
             start_idx = response_text.find('{')
             end_idx = response_text.rfind('}') + 1
             
-            if start_idx != -1 and end_idx != 0:
+            if start_idx != -1 and end_idx > start_idx:
                 json_str = response_text[start_idx:end_idx]
-                result = json.loads(json_str)
+            
+            # Способ 2: Если не нашли, ищем между ```json и ```
+            if not json_str:
+                json_start = response_text.find('```json')
+                if json_start != -1:
+                    json_start += 7  # длина '```json'
+                    json_end = response_text.find('```', json_start)
+                    if json_end != -1:
+                        json_str = response_text[json_start:json_end].strip()
+            
+            # Способ 3: Если все еще не нашли, берем весь текст
+            if not json_str:
+                json_str = response_text
+            
+            # Очищаем JSON от возможных проблем
+            json_str = json_str.replace('\n', ' ')
+            json_str = json_str.replace('\r', ' ')
+            json_str = json_str.replace('\t', ' ')
+            
+            # Убираем множественные пробелы
+            import re
+            json_str = re.sub(r'\s+', ' ', json_str)
+            
+            # Пытаемся распарсить JSON
+            result = json.loads(json_str)
+            
+            # Валидируем структуру
+            if self._validate_posts_structure(result):
+                logger.info("Successfully parsed and validated posts analysis response")
+                return result
+            else:
+                logger.warning("Parsed JSON but structure validation failed")
+                return self._get_posts_fallback_result()
                 
-                # Валидируем структуру для анализа постов
-                if self._validate_posts_structure(result):
-                    logger.info("Successfully parsed posts comments analysis response")
-                    return result
-            
-            logger.warning("Failed to parse posts comments analysis response, using fallback")
-            return self._get_posts_fallback_result()
-            
         except json.JSONDecodeError as e:
-            logger.error(f"JSON decode error in posts comments analysis response: {e}")
+            logger.error(f"JSON decode error in posts analysis: {e}")
+            logger.error(f"Problematic JSON: {json_str[:500] if 'json_str' in locals() else 'N/A'}")
             return self._get_posts_fallback_result()
+            
         except Exception as e:
-            logger.error(f"Error parsing posts comments analysis response: {e}")
+            logger.error(f"Unexpected error parsing posts response: {e}")
             return self._get_posts_fallback_result()
 
 
