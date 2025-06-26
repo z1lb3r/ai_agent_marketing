@@ -53,7 +53,7 @@ class OpenAIService:
                     {"role": "user", "content": user_prompt}
                 ],
                 temperature=0.7,
-                max_tokens=2000
+                max_tokens=8000
             )
             
             # Парсим ответ
@@ -380,7 +380,7 @@ class OpenAIService:
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=3000  # Увеличиваем лимит токенов для related_messages
+                    max_tokens=8000 # Увеличиваем лимит токенов для related_messages
                 ),
                 timeout=240.0
             )
@@ -811,7 +811,7 @@ class OpenAIService:
                         {"role": "user", "content": user_prompt}
                     ],
                     temperature=0.7,
-                    max_tokens=3500  # Увеличиваем для related_messages
+                    max_tokens=8000 # Увеличиваем для related_messages
                 ),
                 timeout=240.0
             )
