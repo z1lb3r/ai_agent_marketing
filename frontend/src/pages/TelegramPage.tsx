@@ -1,22 +1,20 @@
-// frontend/src/pages/TelegramPage.tsx - ПОЛНАЯ ВЕРСИЯ С ПОДДЕРЖКОЙ АНАЛИЗА ПОСТОВ
+// frontend/src/pages/TelegramPage.tsx - ВЕРСИЯ БЕЗ ГРАФИКОВ
 
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { MessageSquare, BarChart2, Users, Clock, AlertCircle, Activity, TrendingUp, Settings, LinkIcon } from 'lucide-react';
 import { useTelegramGroups, useTelegramGroup, useAnalyzeGroup } from '../hooks/useTelegramData';
 import { GroupList } from '../components/Telegram/GroupList';
-import { LineChart } from '../components/Charts/LineChart';
 import { DashboardCard } from '../components/Dashboard/DashboardCard';
 import { MessageList } from '../components/Telegram/MessageList';
 import { ModeratorList } from '../components/Telegram/ModeratorList';
-import { SentimentAnalysis } from '../components/Telegram/SentimentAnalysis';
 import { CommunityAnalysisForm } from '../components/Telegram/CommunityAnalysisForm';
 import { CommunityAnalysisResults } from '../components/Telegram/CommunityAnalysisResults';
 import { PostsAnalysisForm } from '../components/Telegram/PostsAnalysisForm';
 import { useQueryClient } from '@tanstack/react-query';
 import { api } from '../services/api';
 
-// Типы анализа - ДОБАВИЛИ ТРЕТИЙ ТИП
+// Типы анализа
 type AnalysisType = 'moderators' | 'community' | 'posts';
 
 export const TelegramPage: React.FC = () => {
@@ -31,10 +29,10 @@ export const TelegramPage: React.FC = () => {
   const [analyzing, setAnalyzing] = useState<boolean>(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [communityResults, setCommunityResults] = useState<any>(null);
-  const [postsResults, setPostsResults] = useState<any>(null); // НОВОЕ СОСТОЯНИЕ ДЛЯ ПОСТОВ
+  const [postsResults, setPostsResults] = useState<any>(null);
   const [showAnalysisDetails, setShowAnalysisDetails] = useState<boolean>(false);
   const [showCommunityDetails, setShowCommunityDetails] = useState<boolean>(false);
-  const [showPostsDetails, setShowPostsDetails] = useState<boolean>(false); // НОВОЕ СОСТОЯНИЕ
+  const [showPostsDetails, setShowPostsDetails] = useState<boolean>(false);
   
   // Состояние для формы добавления группы
   const [showAddGroupForm, setShowAddGroupForm] = useState<boolean>(false);
@@ -43,10 +41,10 @@ export const TelegramPage: React.FC = () => {
   const [addingGroup, setAddingGroup] = useState<boolean>(false);
   const [addGroupError, setAddGroupError] = useState<string>('');
   
-  // Состояние для форм анализа - ДОБАВИЛИ ФОРМУ ПОСТОВ
+  // Состояние для форм анализа
   const [showAnalysisForm, setShowAnalysisForm] = useState<boolean>(false);
   const [showCommunityForm, setShowCommunityForm] = useState<boolean>(false);
-  const [showPostsForm, setShowPostsForm] = useState<boolean>(false); // НОВАЯ ФОРМА
+  const [showPostsForm, setShowPostsForm] = useState<boolean>(false);
   const [prompt, setPrompt] = useState<string>('');
   const [selectedModerators, setSelectedModerators] = useState<string[]>([]);
   const [daysBack, setDaysBack] = useState<number>(7);
@@ -92,7 +90,7 @@ export const TelegramPage: React.FC = () => {
     setShowCommunityForm(false);
   };
 
-  // НОВЫЙ ОБРАБОТЧИК ДЛЯ АНАЛИЗА ПОСТОВ
+  // Обработчик для анализа постов
   const handlePostsAnalysis = (result: any) => {
     setPostsResults(result);
     setShowPostsDetails(true);
@@ -140,15 +138,15 @@ export const TelegramPage: React.FC = () => {
     }
   };
 
-  // Функция для сброса состояния при переключении типа анализа - ОБНОВЛЕНО ДЛЯ ПОСТОВ
+  // Функция для сброса состояния при переключении типа анализа
   const handleAnalysisTypeChange = (type: AnalysisType) => {
     setAnalysisType(type);
     setShowAnalysisForm(false);
     setShowCommunityForm(false);
-    setShowPostsForm(false); // НОВОЕ
+    setShowPostsForm(false);
     setShowAnalysisDetails(false);
     setShowCommunityDetails(false);
-    setShowPostsDetails(false); // НОВОЕ
+    setShowPostsDetails(false);
     setPrompt('');
   };
 
@@ -282,10 +280,7 @@ export const TelegramPage: React.FC = () => {
                 <div key={i} className="bg-white h-32 rounded-lg shadow"></div>
               ))}
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="bg-white h-80 rounded-lg shadow"></div>
-              <div className="bg-white h-80 rounded-lg shadow"></div>
-            </div>
+            <div className="bg-white h-80 rounded-lg shadow mb-8"></div>
           </div>
         </div>
       </div>
@@ -318,26 +313,7 @@ export const TelegramPage: React.FC = () => {
   // Получаем список модераторов из настроек группы
   const groupModerators = group.settings?.moderators || [];
 
-  // Мок-данные для демонстрации
-  const mockData = {
-    responseTime: [
-      { date: '2025-04-01', value: 4.8 },
-      { date: '2025-04-02', value: 5.2 },
-      { date: '2025-04-03', value: 3.9 },
-      { date: '2025-04-04', value: 4.5 },
-      { date: '2025-04-05', value: 5.1 },
-      { date: '2025-04-06', value: 4.2 },
-      { date: '2025-04-07', value: 3.8 },
-    ],
-    moderatorStats: {
-      avgResponse: '4.5 мин',
-      resolved: 43,
-      satisfaction: '92%',
-      activeTime: '8.5 часов'
-    }
-  };
-
-  // Определяем какие результаты показывать в метриках - ОБНОВЛЕНО ДЛЯ ПОСТОВ
+  // Определяем какие результаты показывать в метриках
   const currentResults = analysisType === 'moderators' ? analysisResults : 
                         analysisType === 'community' ? communityResults : 
                         postsResults;
@@ -405,16 +381,16 @@ export const TelegramPage: React.FC = () => {
           />
         )}
 
-        {/* НОВЫЕ РЕЗУЛЬТАТЫ АНАЛИЗА ПОСТОВ */}
+        {/* Результаты анализа постов */}
         {showPostsDetails && postsResults && (
           <CommunityAnalysisResults 
             results={postsResults}
             onHide={() => setShowPostsDetails(false)}
-            isPostsAnalysis={true} // ФЛАГ ДЛЯ ОПРЕДЕЛЕНИЯ ТИПА АНАЛИЗА
+            isPostsAnalysis={true}
           />
         )}
 
-        {/* Переключатель типов анализа - ДОБАВИЛИ ТРЕТИЙ ТИП */}
+        {/* Переключатель типов анализа */}
         <div className="bg-white shadow rounded-lg p-6 mb-8">
           <h3 className="text-lg font-medium mb-4">Тип Анализа</h3>
           
@@ -440,10 +416,9 @@ export const TelegramPage: React.FC = () => {
               }`}
             >
               <MessageSquare className="h-5 w-5 mr-2" />
-              Анализ Настроений Жителей
+              Настроения Жителей
             </button>
-
-            {/* НОВАЯ КНОПКА ДЛЯ АНАЛИЗА ПОСТОВ */}
+            
             <button
               onClick={() => handleAnalysisTypeChange('posts')}
               className={`flex items-center px-4 py-2 rounded-md ${
@@ -453,110 +428,118 @@ export const TelegramPage: React.FC = () => {
               }`}
             >
               <LinkIcon className="h-5 w-5 mr-2" />
-              Анализ Комментариев к Постам
+              Комментарии к Постам
             </button>
           </div>
 
-          <div className="text-sm text-gray-600 mb-4">
-            {analysisType === 'moderators' 
-              ? 'Анализ эффективности работы модераторов группы'
-              : analysisType === 'community'
-              ? 'Анализ настроений жителей и проблем ЖКХ'
-              : 'Анализ реакций и комментариев к конкретным постам'
-            }
-          </div>
-
-          {/* Кнопки запуска анализа - ДОБАВИЛИ КНОПКУ ДЛЯ ПОСТОВ */}
-          <div className="flex space-x-3">
-            {analysisType === 'moderators' ? (
-              <button 
-                onClick={() => setShowAnalysisForm(!showAnalysisForm)}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md"
+          {/* Кнопки запуска анализа */}
+          <div className="flex space-x-4">
+            {analysisType === 'moderators' && (
+              <button
+                onClick={() => setShowAnalysisForm(true)}
                 disabled={analyzing}
+                className={`px-4 py-2 rounded-md ${
+                  analyzing 
+                    ? 'bg-gray-400 cursor-not-allowed' 
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                }`}
               >
-                {showAnalysisForm ? 'Отмена' : 'Новый Анализ Модераторов'}
+                {analyzing ? 'Анализ...' : 'Запустить Анализ Модераторов'}
               </button>
-            ) : analysisType === 'community' ? (
-              <button 
-                onClick={() => setShowCommunityForm(!showCommunityForm)}
+            )}
+            
+            {analysisType === 'community' && (
+              <button
+                onClick={() => setShowCommunityForm(true)}
                 className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md"
-                disabled={analyzing}
               >
-                {showCommunityForm ? 'Отмена' : 'Анализ Настроений Жителей'}
+                Анализ Настроений Жителей
               </button>
-            ) : (
-              <button 
-                onClick={() => setShowPostsForm(!showPostsForm)}
+            )}
+            
+            {analysisType === 'posts' && (
+              <button
+                onClick={() => setShowPostsForm(true)}
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-md"
-                disabled={analyzing}
               >
-                {showPostsForm ? 'Отмена' : 'Анализ Комментариев к Постам'}
+                Анализ Комментариев к Постам
               </button>
             )}
           </div>
         </div>
-        
-        {/* Формы анализа */}
+
         {/* Форма анализа модераторов */}
         {showAnalysisForm && analysisType === 'moderators' && (
           <div className="bg-white shadow rounded-lg p-6 mb-8">
-            <h3 className="text-lg font-medium mb-4">Анализ Модераторов</h3>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-medium">Анализ Модераторов</h3>
+              <button
+                onClick={() => setShowAnalysisForm(false)}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                ✕
+              </button>
+            </div>
+            
             <form onSubmit={(e) => { e.preventDefault(); handleModeratorAnalysis(); }}>
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
                   Критерии Анализа
                 </label>
                 <textarea
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="Опишите критерии для оценки работы модераторов..."
-                  className="w-full p-3 border border-gray-300 rounded-md"
+                  placeholder="Опишите критерии для анализа эффективности модераторов..."
+                  className="w-full p-2 border border-gray-300 rounded"
                   rows={4}
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Опишите как оценивать работу модераторов (время ответа, качество общения, решение проблем и т.д.)
-                </p>
               </div>
               
               <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Модераторы (через запятую)
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Модераторы для анализа
+                </label>
+                <div className="space-y-2">
+                  {groupModerators.map((moderator: string, index: number) => (
+                    <label key={index} className="flex items-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedModerators.includes(moderator)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedModerators([...selectedModerators, moderator]);
+                          } else {
+                            setSelectedModerators(selectedModerators.filter(m => m !== moderator));
+                          }
+                        }}
+                        className="mr-2"
+                      />
+                      {moderator}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Период (дней назад)
                 </label>
                 <input
-                  type="text"
-                  value={selectedModerators.join(', ')}
-                  onChange={(e) => setSelectedModerators(e.target.value.split(',').map(m => m.trim()))}
-                  placeholder="@moderator1, @moderator2"
-                  className="w-full p-3 border border-gray-300 rounded-md"
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  Оставьте пустым для анализа всех модераторов
-                </p>
-              </div>
-
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Период анализа
-                </label>
-                <select
+                  type="number"
                   value={daysBack}
-                  onChange={(e) => setDaysBack(Number(e.target.value))}
-                  className="w-full p-3 border border-gray-300 rounded-md"
-                >
-                  <option value={1}>За последний день</option>
-                  <option value={3}>За последние 3 дня</option>
-                  <option value={7}>За последнюю неделю</option>
-                  <option value={14}>За последние 2 недели</option>
-                  <option value={30}>За последний месяц</option>
-                </select>
+                  onChange={(e) => setDaysBack(parseInt(e.target.value))}
+                  min={1}
+                  max={30}
+                  className="w-full p-2 border border-gray-300 rounded"
+                />
               </div>
               
               <button
                 type="submit"
-                disabled={analyzing || !prompt.trim()}
+                disabled={analyzing}
                 className={`px-4 py-2 rounded-md ${
-                  analyzing || !prompt.trim()
+                  analyzing 
                     ? 'bg-gray-300 cursor-not-allowed' 
                     : 'bg-indigo-600 hover:bg-indigo-700 text-white'
                 }`}
@@ -576,7 +559,7 @@ export const TelegramPage: React.FC = () => {
           />
         )}
 
-        {/* НОВАЯ ФОРМА АНАЛИЗА ПОСТОВ */}
+        {/* Форма анализа постов */}
         {showPostsForm && analysisType === 'posts' && (
           <PostsAnalysisForm
             groupId={groupId}
@@ -585,7 +568,7 @@ export const TelegramPage: React.FC = () => {
           />
         )}
         
-        {/* Метрики в зависимости от типа анализа - ОБНОВИЛИ ДЛЯ ПОСТОВ */}
+        {/* Метрики в зависимости от типа анализа */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
           <DashboardCard
             title="Участников"
@@ -597,7 +580,7 @@ export const TelegramPage: React.FC = () => {
                    analysisType === 'community' ? "Удовлетворенность" : 
                    "Позитивные Реакции"}
             value={analysisType === 'moderators' 
-              ? (currentResults?.summary?.response_time_avg ? `${currentResults.summary.response_time_avg} мин` : mockData.moderatorStats.avgResponse)
+              ? (currentResults?.summary?.response_time_avg ? `${currentResults.summary.response_time_avg} мин` : "Н/Д")
               : analysisType === 'community'
               ? (currentResults?.sentiment_summary?.satisfaction_score ? `${currentResults.sentiment_summary.satisfaction_score}%` : "Н/Д")
               : (currentResults?.post_reactions?.положительные || "Н/Д")
@@ -609,7 +592,7 @@ export const TelegramPage: React.FC = () => {
                    analysisType === 'community' ? "Уровень Жалоб" :
                    "Негативные Реакции"}
             value={analysisType === 'moderators'
-              ? (currentResults?.summary?.resolved_issues || mockData.moderatorStats.resolved)
+              ? (currentResults?.summary?.resolved_issues || "Н/Д")
               : analysisType === 'community'
               ? (currentResults?.sentiment_summary?.complaint_level || "Н/Д")
               : (currentResults?.post_reactions?.негативные || "Н/Д")
@@ -621,31 +604,12 @@ export const TelegramPage: React.FC = () => {
                    analysisType === 'community' ? "Общее Настроение" :
                    "Проанализировано Постов"}
             value={analysisType === 'moderators'
-              ? (currentResults?.summary?.satisfaction_score ? `${currentResults.summary.satisfaction_score}%` : mockData.moderatorStats.satisfaction)
+              ? (currentResults?.summary?.satisfaction_score ? `${currentResults.summary.satisfaction_score}%` : "Н/Д")
               : analysisType === 'community'
               ? (currentResults?.sentiment_summary?.overall_mood || "Н/Д")
               : (currentResults?.posts_analyzed || "Н/Д")
             }
             icon={<MessageSquare className="h-6 w-6 text-purple-600" />}
-          />
-        </div>
-        
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-          <LineChart 
-            data={mockData.responseTime}
-            dataKey="value"
-            xAxisKey="date"
-            title={analysisType === 'moderators' ? "Тренд Времени Ответа (минуты)" : 
-                   analysisType === 'community' ? "Динамика Настроений" :
-                   "Динамика Реакций на Посты"}
-            color="#3b82f6"
-          />
-          
-          <SentimentAnalysis 
-            groupId={groupId}
-            analysisResults={analysisType === 'moderators' ? analysisResults : null}
-            isAnalyzing={analyzing}
-            onAnalyze={() => analysisType === 'moderators' ? setShowAnalysisForm(true) : null}
           />
         </div>
       </div>
