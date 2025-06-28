@@ -7,7 +7,7 @@ import { X, Plus, LinkIcon, MessageSquare, Users, AlertCircle } from 'lucide-rea
 interface PostsAnalysisFormProps {
   groupId: string;
   onSuccess: (result: any) => void;
-  onCancel: () => void;
+  onCancel?: () => void;
 }
 
 export const PostsAnalysisForm: React.FC<PostsAnalysisFormProps> = ({ 
