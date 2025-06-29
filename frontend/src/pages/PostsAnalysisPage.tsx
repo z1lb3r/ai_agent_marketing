@@ -79,7 +79,7 @@ export const PostsAnalysisPage: React.FC = () => {
 
         {/* Форма анализа */}
         <PostsAnalysisForm
-          groupId="" // Для анализа постов groupId не нужен
+          groupId="default" // Для анализа постов groupId не нужен
           onSuccess={handleAnalysisSuccess}
           // onCancel не нужен на отдельной странице
         />

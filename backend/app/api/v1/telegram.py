@@ -325,16 +325,19 @@ async def analyze_group(
         
         if not prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt is required for analysis")
-        
+
         # Проверяем группу
-        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
-        
-        if not group_check.data:
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        group_data = group_check.data[0]
-        group_name = group_data.get("name", "Unknown")
-        telegram_group_id = group_data.get("group_id")
+        if group_id == "default":
+            group_name = "Posts Analysis"
+            telegram_group_id = None  # Не нужен для анализа постов
+        else:
+            group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+            if not group_check.data:
+                raise HTTPException(status_code=404, detail="Group not found")
+            
+            group_data = group_check.data[0]
+            group_name = group_data.get("name", "Unknown")
+            telegram_group_id = group_data.get("group_id")
         
         # Получаем реальные сообщения из группы
         messages = await telegram_service.get_group_messages(
