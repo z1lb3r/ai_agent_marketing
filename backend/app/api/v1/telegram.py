@@ -325,19 +325,16 @@ async def analyze_group(
         
         if not prompt.strip():
             raise HTTPException(status_code=400, detail="Prompt is required for analysis")
-
+        
         # Проверяем группу
-        if group_id == "default":
-            group_name = "Posts Analysis"
-            telegram_group_id = None  # Не нужен для анализа постов
-        else:
-            group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
-            if not group_check.data:
-                raise HTTPException(status_code=404, detail="Group not found")
-            
-            group_data = group_check.data[0]
-            group_name = group_data.get("name", "Unknown")
-            telegram_group_id = group_data.get("group_id")
+        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+        
+        if not group_check.data:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        group_data = group_check.data[0]
+        group_name = group_data.get("name", "Unknown")
+        telegram_group_id = group_data.get("group_id")
         
         # Получаем реальные сообщения из группы
         messages = await telegram_service.get_group_messages(
@@ -347,7 +344,7 @@ async def analyze_group(
         )
         
         if not messages:
-            raise HTTPException(status_code=400, detail="No messages found in group for analysis")
+            raise HTTPException(status_code=400, detail="No messages found in the group for analysis")
         
         logger.info(f"Analyzing {len(messages)} messages with OpenAI")
         
@@ -1407,13 +1404,15 @@ async def analyze_posts_comments(
             raise HTTPException(status_code=400, detail="post_links должен быть массивом")
         
         # Проверяем группу
-        group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
-        
-        if not group_check.data:
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        group_data = group_check.data[0]
-        group_name = group_data.get("name", "Unknown")
+        if group_id == "default":
+            group_name = "Posts Analysis"
+        else:
+            group_check = supabase_client.table('telegram_groups').select("*").eq('id', group_id).execute()
+            if not group_check.data:
+                raise HTTPException(status_code=404, detail="Group not found")
+            
+            group_data = group_check.data[0]
+            group_name = group_data.get("name", "Unknown")
         
         logger.info(f"📝 Parsing {len(post_links)} post links...")
         
@@ -1488,7 +1487,6 @@ async def analyze_posts_comments(
             "type": "posts_comments",
             "results": analysis_result,
             "prompt": prompt
-            
         }
         
         try:
