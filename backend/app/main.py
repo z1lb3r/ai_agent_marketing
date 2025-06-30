@@ -1,9 +1,10 @@
 # backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from .api.v1 import telegram, moderators, analytics, auth
+from .api.v1 import telegram, moderators, analytics, auth, client_monitoring
 from .core.config import settings
 from .services.telegram_service import TelegramService
+from .services.scheduler_service import scheduler_service
 import asyncio
 import logging
 
@@ -30,19 +31,38 @@ app.include_router(telegram.router, prefix=f"{settings.API_V1_STR}/telegram", ta
 app.include_router(moderators.router, prefix=f"{settings.API_V1_STR}/moderators", tags=["moderators"])
 app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", tags=["analytics"])
 
-# Безопасный startup event без блокирующих операций
+# НОВЫЙ РОУТЕР: Мониторинг клиентов
+app.include_router(client_monitoring.router, prefix=f"{settings.API_V1_STR}/client-monitoring", tags=["client-monitoring"])
+
+# Безопасный startup event
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting Multi-Channel Analyzer API...")
+    
+    # Запускаем планировщик задач для мониторинга клиентов
+    try:
+        scheduler_service.start()
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start scheduler: {e}")
+    
     logger.info("Application started successfully. Telegram client will be initialized on demand.")
 
-# Корректное закрытие клиента при остановке приложения
+# Корректное закрытие приложения
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("Shutting down application...")
+    
+    # Останавливаем планировщик
+    try:
+        scheduler_service.stop()
+        logger.info("Scheduler stopped successfully")
+    except Exception as e:
+        logger.error(f"Error stopping scheduler: {e}")
+    
+    # Останавливаем Telegram клиент
     telegram_service = TelegramService()
     try:
-        # Установим таймаут на закрытие соединения
         await asyncio.wait_for(telegram_service.close(), timeout=5.0)
         logger.info("Telegram client closed successfully")
     except asyncio.TimeoutError:
@@ -56,20 +76,31 @@ async def shutdown_event():
 
 @app.get("/")
 async def root():
-    return {"message": "Multi-Channel Analyzer API"}
+    return {"message": "Multi-Channel Analyzer API with Client Monitoring"}
 
-
-# Закомментированный старый код для справки:
-"""
-# Инициализация Telegram клиента при запуске приложения - ОТКЛЮЧЕНО
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting application...")
-    telegram_service = TelegramService()
+# Новый endpoint для проверки статуса мониторинга
+@app.get("/health/monitoring")
+async def monitoring_health():
+    """Проверка состояния системы мониторинга"""
     try:
-        await telegram_service.start()  # ЭТА СТРОКА БЛОКИРОВАЛА ЗАПУСК
-        logger.info("Telegram client started successfully")
+        from .core.database import get_supabase
+        
+        # Проверяем подключение к БД
+        supabase = get_supabase()
+        result = supabase.table('monitoring_settings').select('count').execute()
+        
+        # Проверяем планировщик
+        scheduler_running = scheduler_service.scheduler.running if scheduler_service.scheduler else False
+        
+        return {
+            "status": "healthy",
+            "database": "connected",
+            "scheduler": "running" if scheduler_running else "stopped",
+            "timestamp": asyncio.get_event_loop().time()
+        }
     except Exception as e:
-        logger.error(f"Error starting Telegram client: {e}")
-        logger.warning("Application will continue, but Telegram functionality may be limited")
-"""
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": asyncio.get_event_loop().time()
+        }
