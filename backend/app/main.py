@@ -83,7 +83,7 @@ async def root():
 async def monitoring_health():
     """Проверка состояния системы мониторинга"""
     try:
-        from .core.database import get_supabase
+        from .core.database import supabase_client
         
         # Проверяем подключение к БД
         supabase = get_supabase()
