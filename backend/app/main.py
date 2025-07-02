@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .api.v1 import telegram, moderators, analytics, auth, client_monitoring
 from .core.config import settings
+from .core.database import supabase_client
 from .services.telegram_service import TelegramService
 from .services.scheduler_service import scheduler_service
 import asyncio
@@ -83,11 +84,8 @@ async def root():
 async def monitoring_health():
     """Проверка состояния системы мониторинга"""
     try:
-        from .core.database import supabase_client
-        
         # Проверяем подключение к БД
-        supabase = get_supabase()
-        result = supabase.table('monitoring_settings').select('count').execute()
+        result = supabase_client.table('monitoring_settings').select('count').execute()
         
         # Проверяем планировщик
         scheduler_running = scheduler_service.scheduler.running if scheduler_service.scheduler else False

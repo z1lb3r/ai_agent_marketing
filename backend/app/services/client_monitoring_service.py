@@ -51,11 +51,6 @@ class ClientMonitoringService:
                     await asyncio.sleep(60)  # Ждем минуту если мониторинг выключен
                     continue
                 
-                # Проверяем рабочие часы
-                if not self._is_active_hours(settings):
-                    await asyncio.sleep(300)  # Ждем 5 минут если не рабочие часы
-                    continue
-                
                 # Выполняем поиск и анализ
                 await self._search_and_analyze(user_id, settings)
                 
@@ -70,8 +65,7 @@ class ClientMonitoringService:
     async def _get_user_settings(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Получить настройки мониторинга пользователя"""
         try:
-            supabase = get_supabase()
-            result = supabase.table('monitoring_settings').select('*').eq('user_id', user_id).execute()
+            result = supabase_client.table('monitoring_settings').select('*').eq('user_id', user_id).execute()
             
             if result.data:
                 return result.data[0]
@@ -80,118 +74,80 @@ class ClientMonitoringService:
         except Exception as e:
             logger.error(f"Error getting user settings for {user_id}: {e}")
             return None
-    
-    def _is_active_hours(self, settings: Dict[str, Any]) -> bool:
-        """Проверить, находимся ли мы в рабочих часах"""
-        try:
-            now = datetime.now().time()
-            start_time = datetime.strptime(settings.get('active_hours_start', '09:00'), '%H:%M').time()
-            end_time = datetime.strptime(settings.get('active_hours_end', '21:00'), '%H:%M').time()
-            
-            return start_time <= now <= end_time
-            
-        except Exception as e:
-            logger.error(f"Error checking active hours: {e}")
-            return True  # По умолчанию работаем всегда
+
     
     async def _search_and_analyze(self, user_id: int, settings: Dict[str, Any]):
         """Поиск ключевых слов и анализ найденных сообщений"""
         try:
-            logger.info(f"Starting search and analyze for user {user_id}")
-            
-            # Получаем шаблоны продуктов
+            # Получаем шаблоны продуктов пользователя
             templates = await self._get_user_templates(user_id)
             if not templates:
-                logger.info(f"No product templates found for user {user_id}")
+                logger.info(f"No templates for user {user_id}")
                 return
             
             # Получаем чаты для мониторинга
             monitored_chats = settings.get('monitored_chats', [])
             if not monitored_chats:
-                logger.info(f"No monitored chats configured for user {user_id}")
+                logger.info(f"No monitored chats for user {user_id}")
                 return
             
-            # Ищем сообщения в каждом чате
-            found_messages = await self._search_keywords_in_chats(
-                monitored_chats, 
-                templates, 
-                settings.get('lookback_minutes', 5)
-            )
+            # Получаем настройки
+            lookback_minutes = settings.get('lookback_minutes', 5)
+            min_ai_confidence = settings.get('min_ai_confidence', 7)
             
-            if not found_messages:
-                logger.info(f"No messages with keywords found for user {user_id}")
-                return
-            
-            logger.info(f"Found {len(found_messages)} messages with keywords for user {user_id}")
-            
-            # Анализируем каждое найденное сообщение через ИИ
-            for message_data in found_messages:
-                await self._analyze_message_with_ai(user_id, message_data, settings)
+            # Для каждого чата ищем новые сообщения
+            for chat_id in monitored_chats:
+                try:
+                    # Получаем последние сообщения из чата
+                    recent_messages = await self._get_recent_messages(chat_id, lookback_minutes)
+                    
+                    # Для каждого шаблона ищем ключевые слова
+                    for template in templates:
+                        keywords = template.get('keywords', [])
+                        if not keywords:
+                            continue
+                        
+                        # Ищем сообщения с ключевыми словами
+                        for message in recent_messages:
+                            message_text = message.get('text', '')
+                            matched_keywords = self._find_keywords_in_text(message_text, keywords)
+                            
+                            if matched_keywords:
+                                # Подготавливаем данные для анализа ИИ
+                                message_data = {
+                                    'message': message,
+                                    'template': template,
+                                    'matched_keywords': matched_keywords
+                                }
+                                
+                                # Анализируем через ИИ
+                                await self._analyze_message_with_ai(user_id, message_data, settings)
                 
+                except Exception as e:
+                    logger.error(f"Error processing chat {chat_id}: {e}")
+                    continue
+            
         except Exception as e:
-            logger.error(f"Error in search and analyze for user {user_id}: {e}")
+            logger.error(f"Error in search and analyze: {e}")
     
     async def _get_user_templates(self, user_id: int) -> List[Dict[str, Any]]:
-        """Получить активные шаблоны продуктов пользователя"""
+        """Получить активные шаблоны пользователя"""
         try:
-            supabase = get_supabase()
-            result = supabase.table('product_templates').select('*').eq('user_id', user_id).eq('is_active', True).execute()
+            result = supabase_client.table('product_templates').select('*').eq('user_id', user_id).eq('is_active', True).execute()
             
             return result.data or []
             
         except Exception as e:
-            logger.error(f"Error getting user templates for {user_id}: {e}")
+            logger.error(f"Error getting user templates: {e}")
             return []
     
-    async def _search_keywords_in_chats(
-        self, 
-        chat_ids: List[str], 
-        templates: List[Dict[str, Any]], 
-        lookback_minutes: int
-    ) -> List[Dict[str, Any]]:
-        """Поиск ключевых слов в сообщениях чатов"""
-        found_messages = []
-        
-        for chat_id in chat_ids:
-            try:
-                # Получаем свежие сообщения из чата
-                recent_messages = await self._get_recent_messages(chat_id, lookback_minutes)
-                
-                if not recent_messages:
-                    continue
-                
-                # Проверяем каждое сообщение на ключевые слова
-                for message in recent_messages:
-                    for template in templates:
-                        matched_keywords = self._find_keywords_in_text(
-                            message.get('text', ''), 
-                            template['keywords']
-                        )
-                        
-                        if matched_keywords:
-                            found_messages.append({
-                                'message': message,
-                                'template': template,
-                                'chat_id': chat_id,
-                                'matched_keywords': matched_keywords
-                            })
-                            
-                            # Прерываем поиск по шаблонам для этого сообщения
-                            break
-                            
-            except Exception as e:
-                logger.error(f"Error searching in chat {chat_id}: {e}")
-                continue
-        
-        return found_messages
-    
     async def _get_recent_messages(self, chat_id: str, lookback_minutes: int) -> List[Dict[str, Any]]:
-        """Получить недавние сообщения из чата"""
+        """Получить последние сообщения из чата"""
         try:
-            # Используем существующий метод telegram_service
-            # Конвертируем минуты в дни для совместимости
-            lookback_days = max(1, lookback_minutes / (60 * 24))
+            # Рассчитываем время для поиска сообщений
+            lookback_days = max(1, lookback_minutes // (24 * 60))  # Минимум 1 день
             
+            # Получаем сообщения через Telegram service
             messages = await self.telegram_service.get_group_messages(
                 group_id=chat_id,
                 limit=100,  # Ограничиваем количество для скорости
@@ -250,107 +206,71 @@ class ClientMonitoringService:
             if await self._is_message_already_processed(message.get('message_id'), user_id):
                 return
             
-            # Отправляем в ИИ на анализ
-            ai_result = await self._analyze_purchase_intent(
-                message.get('text', ''), 
-                template['name']
-            )
+            # Создаем промпт для ИИ анализа
+            ai_prompt = f"""
+            Проанализируй сообщение пользователя на предмет намерения купить товар/услугу.
             
-            # Проверяем уверенность ИИ
+            Продукт: {template['name']}
+            Ключевые слова: {', '.join(template['keywords'])}
+            Сообщение: "{message.get('text', '')}"
+            Найденные ключевые слова: {', '.join(matched_keywords)}
+            
+            Оцени по шкале от 1 до 10:
+            1. Уверенность в том, что это потенциальный покупатель
+            2. Тип намерения (поиск информации, готовность к покупке, сравнение вариантов)
+            
+            Ответь в формате JSON:
+            {{
+                "confidence": число от 1 до 10,
+                "intent_type": "информация/покупка/сравнение/другое",
+                "reasoning": "объяснение анализа"
+            }}
+            """
+            
+            # Отправляем запрос к ИИ (здесь используется заглушка)
+            ai_result = await self._call_ai_analysis(ai_prompt)
+            
+            # Проверяем минимальную уверенность
             min_confidence = settings.get('min_ai_confidence', 7)
-            if ai_result.get('confidence', 0) < min_confidence:
-                logger.info(f"AI confidence {ai_result.get('confidence')} below threshold {min_confidence}")
-                return
-            
-            # Если ИИ подтвердил намерение - сохраняем клиента
-            if ai_result.get('has_intent', False):
-                await self._save_potential_client(
-                    user_id, message_data, ai_result
-                )
+            if ai_result.get('confidence', 0) >= min_confidence:
+                # Сохраняем потенциального клиента
+                await self._save_potential_client(user_id, message_data, ai_result)
                 
                 # Отправляем уведомление
-                await self._send_notification(
-                    settings.get('notification_account'), 
-                    message_data, 
-                    ai_result
-                )
-                
+                notification_account = settings.get('notification_account')
+                await self._send_notification(notification_account, message_data, ai_result)
+            
         except Exception as e:
             logger.error(f"Error analyzing message with AI: {e}")
     
     async def _is_message_already_processed(self, message_id: str, user_id: int) -> bool:
-        """Проверить, не обрабатывали ли мы уже это сообщение"""
-        if not message_id:
-            return False
-            
+        """Проверить, обрабатывалось ли уже это сообщение"""
         try:
-            supabase = get_supabase()
-            result = supabase.table('potential_clients').select('id').eq('message_id', message_id).eq('user_id', user_id).execute()
+            if not message_id:
+                return False
             
-            return len(result.data) > 0
+            result = supabase_client.table('potential_clients').select('id').eq('message_id', message_id).eq('user_id', user_id).execute()
+            
+            return bool(result.data)
             
         except Exception as e:
             logger.error(f"Error checking if message processed: {e}")
             return False
     
-    async def _analyze_purchase_intent(self, message_text: str, product_name: str) -> Dict[str, Any]:
-        """Анализ намерения покупки через ИИ"""
+    async def _call_ai_analysis(self, prompt: str) -> Dict[str, Any]:
+        """Вызов ИИ для анализа (заглушка)"""
         try:
-            prompt = f"""
-Проанализируй сообщение на предмет РЕАЛЬНОГО намерения купить товар категории "{product_name}".
-
-Сообщение: "{message_text}"
-
-Определи:
-1. Есть ли намерение покупки (да/нет)
-2. Насколько сильное намерение (1-10, где 10 = готов купить сейчас)
-3. Тип намерения
-
-ВАЖНО: Отличай реальные намерения от упоминаний в других контекстах.
-
-Примеры РЕАЛЬНЫХ намерений:
-- "Где купить хорошие наушники?"
-- "Посоветуйте наушники до 5000р"
-- "Нужны беспроводные наушники для спорта"
-
-Примеры НЕ намерений:
-- "Слушаю музыку в наушниках"
-- "Песня называется 'наушники'"
-- "У меня сломались наушники" (без желания купить новые)
-
-Ответь в JSON:
-{{
-    "has_intent": boolean,
-    "confidence": number (1-10),
-    "intent_type": "seeking_info|ready_to_buy|comparing",
-    "explanation": "краткое объяснение решения"
-}}
-"""
-
-            response = await self.openai_service.client.chat.completions.create(
-                model="gpt-3.5-turbo",
-                messages=[
-                    {"role": "system", "content": "Ты эксперт по анализу намерений покупки в текстах."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=200
-            )
-            
-            import json
-            result = json.loads(response.choices[0].message.content)
-            
-            logger.info(f"AI analysis result: {result}")
-            return result
+            # TODO: Реализовать реальный вызов OpenAI API
+            # Сейчас возвращаем заглушку
+            return {
+                "confidence": 8,
+                "intent_type": "покупка",
+                "reasoning": "Пользователь явно ищет товар и готов к покупке"
+            }
             
         except Exception as e:
-            logger.error(f"Error in AI analysis: {e}")
-            return {
-                "has_intent": False,
-                "confidence": 0,
-                "intent_type": "unknown",
-                "explanation": f"Error in analysis: {str(e)}"
-            }
+            logger.error(f"Error calling AI analysis: {e}")
+            return {"confidence": 0, "intent_type": "unknown", "reasoning": "Ошибка анализа"}
     
     async def _save_potential_client(
         self, 
@@ -358,34 +278,33 @@ class ClientMonitoringService:
         message_data: Dict[str, Any], 
         ai_result: Dict[str, Any]
     ):
-        """Сохранить найденного потенциального клиента"""
+        """Сохранить потенциального клиента в базу данных"""
         try:
             message = message_data['message']
             template = message_data['template']
-            
-            # Извлекаем информацию об авторе
             author = message.get('sender', {})
             
-            supabase = get_supabase()
-            result = supabase.table('potential_clients').insert({
+            # Подготавливаем данные для сохранения
+            client_data = {
                 'user_id': user_id,
-                'message_text': message.get('text', ''),
+                'product_template_id': template.get('id'),
                 'message_id': message.get('message_id'),
-                'chat_id': message_data['chat_id'],
-                'chat_name': message.get('chat', {}).get('title', ''),
+                'chat_id': message.get('chat', {}).get('id'),
+                'chat_title': message.get('chat', {}).get('title'),
                 'author_username': author.get('username'),
                 'author_first_name': author.get('first_name'),
-                'author_id': str(author.get('id', '')),
-                'product_template_id': template['id'],
-                'template_name': template['name'],
+                'author_telegram_id': author.get('id'),
+                'message_text': message.get('text', '')[:1000],  # Ограничиваем длину
                 'matched_keywords': message_data['matched_keywords'],
-                'ai_confidence_score': ai_result.get('confidence'),
-                'ai_intent_type': ai_result.get('intent_type'),
-                'ai_explanation': ai_result.get('explanation'),
-                'client_status': 'new',
+                'ai_confidence': ai_result.get('confidence', 0),
+                'ai_intent_type': ai_result.get('intent_type', 'unknown'),
+                'ai_reasoning': ai_result.get('reasoning', ''),
+                'status': 'new',
                 'notification_sent': False,
                 'created_at': datetime.now().isoformat()
-            }).execute()
+            }
+            
+            result = supabase_client.table('potential_clients').insert(client_data).execute()
             
             if result.data:
                 logger.info(f"Saved potential client: {author.get('username', 'unknown')}")

@@ -66,8 +66,7 @@ class SchedulerService:
     async def _get_active_monitoring_users(self) -> list:
         """Получить всех пользователей с активным мониторингом"""
         try:
-            supabase = get_supabase()
-            result = supabase.table('monitoring_settings').select('*').eq('is_active', True).execute()
+            result = supabase_client.table('monitoring_settings').select('*').eq('is_active', True).execute()
             
             return result.data or []
             
@@ -78,10 +77,6 @@ class SchedulerService:
     def _should_run_monitoring(self, settings: dict) -> bool:
         """Проверить, нужно ли запускать мониторинг для пользователя"""
         try:
-            # Проверяем рабочие часы
-            if not self._is_active_hours(settings):
-                return False
-            
             # Проверяем интервал
             last_check = settings.get('last_monitoring_check')
             interval_minutes = settings.get('check_interval_minutes', 5)
@@ -98,19 +93,6 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Error checking if should run monitoring: {e}")
             return False
-    
-    def _is_active_hours(self, settings: dict) -> bool:
-        """Проверить рабочие часы"""
-        try:
-            now = datetime.now().time()
-            start_time = datetime.strptime(settings.get('active_hours_start', '09:00'), '%H:%M').time()
-            end_time = datetime.strptime(settings.get('active_hours_end', '21:00'), '%H:%M').time()
-            
-            return start_time <= now <= end_time
-            
-        except Exception as e:
-            logger.error(f"Error checking active hours: {e}")
-            return True
     
     async def _run_monitoring_for_user(self, user_id: int, settings: dict):
         """Запустить мониторинг для конкретного пользователя"""
@@ -139,8 +121,7 @@ class SchedulerService:
     async def _update_last_check_time(self, user_id: int):
         """Обновить время последней проверки"""
         try:
-            supabase = get_supabase()
-            supabase.table('monitoring_settings').update({
+            supabase_client.table('monitoring_settings').update({
                 'last_monitoring_check': datetime.now().isoformat()
             }).eq('user_id', user_id).execute()
             
@@ -150,8 +131,7 @@ class SchedulerService:
     async def _get_user_templates(self, user_id: int) -> list:
         """Получить шаблоны пользователя"""
         try:
-            supabase = get_supabase()
-            result = supabase.table('product_templates').select('*').eq('user_id', user_id).eq('is_active', True).execute()
+            result = supabase_client.table('product_templates').select('*').eq('user_id', user_id).eq('is_active', True).execute()
             
             return result.data or []
             
