@@ -238,7 +238,7 @@ async def get_potential_clients(
         query = supabase_client.table('potential_clients').select('*').eq('user_id', user_id)
         
         if status:
-            query = query.eq('status', status)
+            query = query.eq('client_status', status)
         
         result = query.order('created_at', desc=True).range(offset, offset + limit - 1).execute()
         
@@ -258,7 +258,7 @@ async def update_client_status(client_id: int, status_update: ClientStatusUpdate
             raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid_statuses}")
         
         result = supabase_client.table('potential_clients').update({
-            'status': status_update.status
+            'client_status': status_update.status
         }).eq('id', client_id).eq('user_id', user_id).execute()
         
         if result.data:
@@ -282,7 +282,7 @@ async def get_monitoring_stats(user_id: int = 1):
         # Количество по статусам
         status_stats = {}
         for status in ['new', 'contacted', 'ignored', 'converted']:
-            status_result = supabase_client.table('potential_clients').select('id', count='exact').eq('user_id', user_id).eq('status', status).execute()
+            status_result = supabase_client.table('potential_clients').select('id', count='exact').eq('user_id', user_id).eq('client_status', status).execute()
             status_stats[status] = status_result.count or 0
         
         # Статистика за последние 7 дней

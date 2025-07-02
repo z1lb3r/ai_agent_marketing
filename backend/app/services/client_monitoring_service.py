@@ -299,7 +299,7 @@ class ClientMonitoringService:
                 'ai_confidence': ai_result.get('confidence', 0),
                 'ai_intent_type': ai_result.get('intent_type', 'unknown'),
                 'ai_reasoning': ai_result.get('reasoning', ''),
-                'status': 'new',
+                'client_status': 'new',
                 'notification_sent': False,
                 'created_at': datetime.now().isoformat()
             }
