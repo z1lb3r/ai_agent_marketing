@@ -1,6 +1,7 @@
 # backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from .api.v1 import telegram, moderators, analytics, auth, client_monitoring
 from .core.config import settings
 from .core.database import supabase_client
@@ -12,9 +13,65 @@ import logging
 # Настройка логирования
 logger = logging.getLogger(__name__)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Управление жизненным циклом приложения (startup/shutdown)"""
+    # === STARTUP ===
+    print("🚀 MAIN: Starting Multi-Channel Analyzer API...")
+    logger.info("Starting Multi-Channel Analyzer API...")
+    
+    # Запускаем планировщик задач для мониторинга клиентов
+    try:
+        print("🔧 MAIN: Starting scheduler service...")
+        scheduler_service.start()
+        print("✅ MAIN: Scheduler started successfully")
+        logger.info("Scheduler started successfully")
+    except Exception as e:
+        print(f"❌ MAIN: Failed to start scheduler: {e}")
+        logger.error(f"Failed to start scheduler: {e}")
+    
+    print("✅ MAIN: Application started successfully. Telegram client will be initialized on demand.")
+    logger.info("Application started successfully. Telegram client will be initialized on demand.")
+    
+    yield  # Приложение работает здесь
+    
+    # === SHUTDOWN ===
+    print("🛑 MAIN: Shutting down application...")
+    logger.info("Shutting down application...")
+    
+    # Останавливаем планировщик
+    try:
+        scheduler_service.stop()
+        print("✅ MAIN: Scheduler stopped successfully")
+        logger.info("Scheduler stopped successfully")
+    except Exception as e:
+        print(f"❌ MAIN: Error stopping scheduler: {e}")
+        logger.error(f"Error stopping scheduler: {e}")
+    
+    # Останавливаем Telegram клиент
+    telegram_service = TelegramService()
+    try:
+        await asyncio.wait_for(telegram_service.close(), timeout=5.0)
+        print("✅ MAIN: Telegram client closed successfully")
+        logger.info("Telegram client closed successfully")
+    except asyncio.TimeoutError:
+        print("⚠️ MAIN: Timeout occurred while closing Telegram client, forcing shutdown")
+        logger.warning("Timeout occurred while closing Telegram client, forcing shutdown")
+    except Exception as e:
+        print(f"❌ MAIN: Error closing Telegram client: {e}")
+        logger.error(f"Error closing Telegram client: {e}")
+    
+    # Явно очищаем ресурсы
+    if hasattr(telegram_service, 'client') and telegram_service.client:
+        telegram_service.client = None
+    
+    print("✅ MAIN: Application shutdown complete")
+
+# Создаем FastAPI приложение с lifespan
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json"
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan  # Новый способ управления lifecycle
 )
 
 # CORS middleware
@@ -34,46 +91,6 @@ app.include_router(analytics.router, prefix=f"{settings.API_V1_STR}/analytics", 
 
 # НОВЫЙ РОУТЕР: Мониторинг клиентов
 app.include_router(client_monitoring.router, prefix=f"{settings.API_V1_STR}/client-monitoring", tags=["client-monitoring"])
-
-# Безопасный startup event
-@app.on_event("startup")
-async def startup_event():
-    logger.info("Starting Multi-Channel Analyzer API...")
-    
-    # Запускаем планировщик задач для мониторинга клиентов
-    try:
-        scheduler_service.start()
-        logger.info("Scheduler started successfully")
-    except Exception as e:
-        logger.error(f"Failed to start scheduler: {e}")
-    
-    logger.info("Application started successfully. Telegram client will be initialized on demand.")
-
-# Корректное закрытие приложения
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("Shutting down application...")
-    
-    # Останавливаем планировщик
-    try:
-        scheduler_service.stop()
-        logger.info("Scheduler stopped successfully")
-    except Exception as e:
-        logger.error(f"Error stopping scheduler: {e}")
-    
-    # Останавливаем Telegram клиент
-    telegram_service = TelegramService()
-    try:
-        await asyncio.wait_for(telegram_service.close(), timeout=5.0)
-        logger.info("Telegram client closed successfully")
-    except asyncio.TimeoutError:
-        logger.warning("Timeout occurred while closing Telegram client, forcing shutdown")
-    except Exception as e:
-        logger.error(f"Error closing Telegram client: {e}")
-    
-    # Явно очищаем ресурсы
-    if hasattr(telegram_service, 'client') and telegram_service.client:
-        telegram_service.client = None
 
 @app.get("/")
 async def root():
