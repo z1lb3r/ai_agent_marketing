@@ -23,12 +23,14 @@ async def lifespan(app: FastAPI):
     # Запускаем планировщик задач для мониторинга клиентов
     try:
         print("🔧 MAIN: Starting scheduler service...")
-        scheduler_service.start()
+        await scheduler_service.start()  # ← ИСПРАВЛЕНО: добавлен await
         print("✅ MAIN: Scheduler started successfully")
         logger.info("Scheduler started successfully")
     except Exception as e:
         print(f"❌ MAIN: Failed to start scheduler: {e}")
         logger.error(f"Failed to start scheduler: {e}")
+        import traceback
+        logger.error(f"❌ MAIN: Traceback: {traceback.format_exc()}")
     
     print("✅ MAIN: Application started successfully. Telegram client will be initialized on demand.")
     logger.info("Application started successfully. Telegram client will be initialized on demand.")
@@ -41,7 +43,7 @@ async def lifespan(app: FastAPI):
     
     # Останавливаем планировщик
     try:
-        scheduler_service.stop()
+        await scheduler_service.stop()  # ← ИСПРАВЛЕНО: добавлен await
         print("✅ MAIN: Scheduler stopped successfully")
         logger.info("Scheduler stopped successfully")
     except Exception as e:
